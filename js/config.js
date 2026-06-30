@@ -7,19 +7,34 @@ const CONFIG = {
   TWITCH_REDIRECT_URI: 'https://eendychan.github.io/chatterguesser/',
   TWITCH_SCOPES: ['moderation:read', 'channel:read:vips'],
 
-  // Канал, с которого парсятся логи (можно сменить в будущем через настройки)
-  LOGS_CHANNEL: 'xah0b',
+  // Канал, с которого парсятся логи по умолчанию (можно сменить через UI)
+  LOGS_CHANNEL_DEFAULT: 'xah0b',
   LOGS_BASE_URL: 'https://logs.zonian.dev',
+
+  // Готовые пресеты каналов — показываются в выпадающем списке "Свой канал"
+  CHANNEL_PRESETS: [
+    { login: 'xah0b', startDate: { year: 2025, month: 6, day: 14 } },
+    { login: 'stintik', startDate: { year: 2024, month: 6, day: 15 } },
+    { login: 'mazellovvv', startDate: { year: 2022, month: 11, day: 29 } },
+    { login: 'cacto0o', startDate: { year: 2024, month: 9, day: 11 } },
+    { login: 't2x2', startDate: { year: 2021, month: 10, day: 12 } },
+    { login: 'bratishkinoff', startDate: { year: 2024, month: 7, day: 30 } },
+    { login: '5opka', startDate: { year: 2024, month: 8, day: 4 } },
+    { login: 'dragoniil_fff', startDate: { year: 2025, month: 1, day: 14 } },
+    { login: 'winx_prinx', startDate: { year: 2026, month: 5, day: 15 } },
+    { login: 'olesha', startDate: { year: 2023, month: 2, day: 10 } },
+    { login: 'pwgood', startDate: { year: 2023, month: 11, day: 16 } },
+  ],
+
+  CUSTOM_LOGS_SITE_URL: 'https://tv.supa.sh/logs',
+  LINKS_URL: 'https://bio.site/endychan',
 
   // CORS fallback — если прямой fetch не проходит, пробуем публичный прокси
   CORS_PROXY: 'https://corsproxy.io/?url=',
 
-  // Начальная дата логов
+  // Начальная и крайняя (по умолчанию) дата логов
   LOGS_START_DATE: { year: 2025, month: 6, day: 14 },
-
-  // Сколько дней максимум назад можно "досканировать" в глубину,
-  // если сообщений не хватает под фильтры
-  MAX_DAYS_LOOKBACK_EXPANSION: 365,
+  // Крайняя дата всегда вычисляется как "сегодня" в момент захода на сайт
 
   // Дефолтные значения фильтров
   DEFAULTS: {
@@ -41,7 +56,18 @@ const CONFIG = {
     maxMessagesBound: 30000,
 
     authorFilter: 'all', // all | regulars | vips | mods | vips_mods
+
+    // Список ников, чьи сообщения никогда не участвуют в игре (боты и т.п.)
+    // Вводится через пробел, хранится строкой для удобства редактирования в UI
+    ignoredChatters: 'fossabot eendychan linkdrops nightbot potatbotat',
   },
+
+  // Дефолтные списки модераторов/VIP-ов канала xah0b — используются как
+  // fallback, если у авторизовавшегося пользователя нет прав на чтение
+  // официального списка модов/VIP через Helix API для этого канала.
+  DEFAULT_MODS: 'endychann mirronake 4poker_traxodrom adskiy_pro100_andrey ansstsia asasha54 cacto0o cottafruit exx1dae fiveskill fivfiv001 ghghh_ jojohf kwinkir makkkena mazellovvv mishellmer razdva stintik t2x2 xata_natata yaicafonk',
+
+  DEFAULT_VIPS: 'adamsonshow avgust00086 birsenbergg bobrikww colevoy_228 cr1v0y dafevui daniluch__1337 dartmyaso_67 foklgts freneticmustdie glebasagentfsb hytaim i_nasya_2 janiksa4y karlonlyone klybnezhorka korkaflm kunai4ek kuperdb lilsemmi lowhpsher m1lyan makapohbl432 maksklassspaxan_67 mar0ka_67 mellsher meowh0cki misterpyatorka mratizzov nawsechka nazy_33 ne1kuri nepibaro olegus27 outsiderinc qbert_pepsico qwerti7777 rew1nder_ sh1nkaa_lina sisteofrock slaffneft slate993 spokoynich_ ssseki4_tromb_67 the_matr1xgg thepupus trap1n vanya_04 varpeee__ wew__we whykrawomi widze0 wiwertv__________________ wuweeie wwindyxx x1kon_ xlbodlx zela_pro',
 
   // Бейджи фильтра по типу автора
   BADGES: {
@@ -64,6 +90,8 @@ const CONFIG = {
     /\bThey have given \d+ Gift Subs?\b/i,
     /\bThey've gifted a total of \d+\b/i,
     /\braided .* with \d+ viewers?\b/i,
+    /^https:\/\//i,
+    /\bwatched \d+ consecutive streams and sparked a watch streak!?\b/i,
   ],
 
   // sessionStorage keys
