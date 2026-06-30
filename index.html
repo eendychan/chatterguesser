@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatterGuesser</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Экран авторизации -->
+  <div id="auth-screen" class="auth-screen hidden">
+    <div class="logo">CHATTERGUESSER</div>
+    <h1>Кто это <span class="accent">написал</span>?</h1>
+    <p class="tagline">Угадывайте, кто из чата отправил сообщение. Авторизуйтесь через Twitch, чтобы начать — доступ действует до перезагрузки страницы.</p>
+    <button id="btn-auth" class="btn-twitch-auth">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M4 2L2.5 5.5v13H7V21h2.5l2.5-2.5h4L21 13V2H4zm15 10l-3 3h-4l-2.5 2.5V15H6V4h13v8z"/><path d="M14.5 7H16v4h-1.5V7zM10 7h1.5v4H10V7z"/></svg>
+      Twitch Авторизация
+    </button>
+    <div id="auth-error" class="auth-error hidden"></div>
+  </div>
+
+  <!-- Экран настроек -->
+  <div id="setup-screen" class="setup-screen hidden">
+    <div class="setup-header">
+      <div class="title-block">
+        <h1>ChatterGuesser</h1>
+        <div class="subtitle">// канал логов: <span id="logs-channel-label"></span></div>
+      </div>
+      <div class="user-chip">
+        <img id="user-avatar" src="" alt="">
+        <span id="user-name"></span>
+        <button id="btn-logout" class="logout-link">выйти</button>
+      </div>
+    </div>
+
+    <div id="setup-error" class="error-banner hidden"></div>
+
+    <div class="panel">
+      <h2>Фильтры раунда</h2>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Раундов</span>
+          <input type="number" id="input-rounds" class="filter-value-input" min="5" max="50" value="10">
+        </div>
+        <input type="range" id="range-rounds" min="5" max="50" value="10" step="1">
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Букв в сообщении</span>
+        </div>
+        <div class="range-pair">
+          <div class="range-input-group">
+            <label>Минимальный: <span id="label-min-length">50</span></label>
+            <input type="range" id="range-min-length" min="1" max="500" value="50" step="1">
+          </div>
+          <div class="range-input-group">
+            <label>Максимальный: <span id="label-max-length">150</span></label>
+            <input type="range" id="range-max-length" min="1" max="500" value="150" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Вариантов</span>
+          <input type="number" id="input-variants" class="filter-value-input" min="3" max="6" value="3">
+        </div>
+        <input type="range" id="range-variants" min="3" max="6" value="3" step="1">
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Минимум сообщений автора</span>
+          <input type="number" id="input-min-messages" class="filter-value-input" min="100" value="5000" style="width: 88px;">
+        </div>
+        <input type="range" id="range-min-messages" min="100" max="30000" value="5000" step="100">
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Только от</span>
+        </div>
+        <div class="author-toggle">
+          <button class="author-toggle-btn active" data-author="all">
+            <img class="single-badge" src="" data-badge="all" alt="">
+            Всех
+          </button>
+          <button class="author-toggle-btn" data-author="regulars">
+            <img class="single-badge" src="" data-badge="regulars" alt="">
+            Работяг
+          </button>
+          <button class="author-toggle-btn" data-author="vips">
+            <img class="single-badge" src="" data-badge="vips" alt="">
+            Випов
+          </button>
+          <button class="author-toggle-btn" data-author="mods">
+            <img class="single-badge" src="" data-badge="mods" alt="">
+            Модеров
+          </button>
+          <button class="author-toggle-btn" data-author="vips_mods">
+            <span class="badge-icon-pair">
+              <img src="" data-badge="vips" alt="">
+              <img src="" data-badge="mods" alt="">
+            </span>
+            Випов и Модеров
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Режим игры</h2>
+      <div class="mode-select">
+        <button class="mode-card active" data-mode="solo">
+          <div class="mode-title">Одиночная игра</div>
+          <div class="mode-desc">Угадываете самостоятельно, без участия зрителей.</div>
+        </button>
+        <button class="mode-card" data-mode="chat">
+          <div class="mode-title">Играть с чатом</div>
+          <div class="mode-desc">Зрители голосуют номерами в чат. Топ угадавших отображается рядом с игрой.</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="start-game-bar">
+      <div style="flex:1;">
+        <div id="loading-status" class="loading-status"></div>
+      </div>
+      <button id="btn-start-game" class="btn-start">Начать игру</button>
+    </div>
+  </div>
+
+  <!-- Игровой экран -->
+  <div id="game-screen" class="game-screen hidden">
+    <div class="game-main">
+      <div class="round-progress">
+        <span id="round-progress-label">Раунд 1 / 10</span>
+        <span id="score-progress-label"></span>
+      </div>
+
+      <div class="guess-header">
+        <div class="label">Кто написал это сообщение?</div>
+        <div class="question">ЧТО ПИСАЛ <span class="username" id="target-username">???</span>?</div>
+      </div>
+
+      <div id="options-list" class="options-list"></div>
+
+      <button id="btn-next-round" class="btn-next-round hidden">Следующий раунд →</button>
+    </div>
+
+    <div id="chat-sidebar" class="chat-sidebar hidden">
+      <h3>Топ чата</h3>
+      <div id="connection-status" class="connection-status disconnected">подключение...</div>
+      <div id="leaderboard-list"></div>
+      <div class="vote-hint">Зрители пишут в чат номер варианта (1, 2, 3...), который считают правильным.</div>
+    </div>
+  </div>
+
+  <!-- Финальный экран -->
+  <div id="results-screen" class="results-screen hidden">
+    <div class="results-label">Игра окончена</div>
+    <div class="big-score" id="final-score">0 / 10</div>
+    <p id="final-comment" style="color: var(--text-dim);"></p>
+    <button id="btn-restart" class="btn-restart">Сыграть ещё раз</button>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/twitchAuth.js"></script>
+  <script src="js/logsService.js"></script>
+  <script src="js/messagePool.js"></script>
+  <script src="js/gameEngine.js"></script>
+  <script src="js/chatListener.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
