@@ -119,7 +119,7 @@ const LogsService = (() => {
     return a.day < b.day;
   }
 
-  // Собирает список дат от today назад до start (включительно), от новых к старым
+  // Собирает список дат от end назад до start (включительно), от новых к старым
   function enumerateDatesDescending(start, end) {
     const dates = [];
     let cursor = { ...end };
@@ -131,44 +131,17 @@ const LogsService = (() => {
     return dates;
   }
 
-  // Загружает сообщения, постепенно расширяя диапазон дат, пока не наберётся
-  // достаточно сообщений, прошедших фильтры author/length, или пока не упрёмся
-  // в начальную дату/лимит дней.
-  // onProgress(daysScanned, messagesFound) — опциональный колбэк для UI
-  async function collectMessages(channel, filterFn, minNeeded, onProgress) {
-    const start = CONFIG.LOGS_START_DATE;
-    const end = todayUTC();
-    const allDates = enumerateDatesDescending(start, end);
-
-    let collected = [];
-    let daysScanned = 0;
-
-    for (const date of allDates) {
-      if (daysScanned >= CONFIG.MAX_DAYS_LOOKBACK_EXPANSION) break;
-
-      const dayMessages = await fetchDay(channel, date.year, date.month, date.day);
-      daysScanned++;
-
-      const filtered = dayMessages.filter(filterFn);
-      collected = collected.concat(filtered);
-
-      if (onProgress) onProgress(daysScanned, collected.length);
-
-      if (collected.length >= minNeeded) break;
-    }
-
-    return collected;
-  }
-
   function getCorsMode() {
     return corsMode;
   }
 
   return {
     fetchDay,
-    collectMessages,
     parseLogText,
     isSystemMessage,
     getCorsMode,
+    todayUTC,
+    enumerateDatesDescending,
+    isBefore,
   };
 })();
