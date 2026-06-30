@@ -82,6 +82,12 @@
 
   // ===== Экран настроек =====
 
+  // Полный пул СЫРЫХ сообщений за весь доступный диапазон логов, без фильтров.
+  // Сканируется один раз при входе на экран настроек, фильтры применяются
+  // к нему мгновенно на клиенте без повторных сетевых запросов.
+  let rawMessagesCache = null;
+  let logsScanPromise = null;
+
   async function enterSetupScreen() {
     initBadgeImages();
     loadSettingsFromSession();
@@ -95,14 +101,16 @@
     showScreen('setup');
 
     // Подтягиваем список модов/випов канала стримера (для фильтра "Только от")
-    // Если канал логов отличается от канала стримера, эти бейджи всё равно
-    // полезны как индикатор статуса в Twitch-аккаунте авторизовавшегося пользователя.
     const [modList, vipList] = await Promise.all([
       TwitchAuth.fetchModerators(),
       TwitchAuth.fetchVips(),
     ]);
     mods = new Set(modList);
     vips = new Set(vipList);
+
+    // Запускаем полное сканирование логов сразу — кнопка "Начать игру"
+    // остаётся заблокированной, пока оно не завершится.
+    startFullLogsScan();
   }
 
   function applySettingsToUI() {
@@ -218,39 +226,87 @@
     });
   });
 
-  // ===== Запуск игры =====
+  // ===== Полное сканирование логов (запускается один раз при входе на экран) =====
 
   const setupErrorEl = document.getElementById('setup-error');
   const loadingStatusEl = document.getElementById('loading-status');
   const btnStart = document.getElementById('btn-start-game');
 
+  function startFullLogsScan() {
+    btnStart.disabled = true;
+    btnStart.textContent = 'Парсинг логов...';
+    setupErrorEl.classList.add('hidden');
+
+    logsScanPromise = MessagePool.scanAllMessages(
+      { channel: CONFIG.LOGS_CHANNEL },
+      ({ daysScanned, totalDays, rawCount }) => {
+        loadingStatusEl.textContent =
+          `Парсинг логов: день ${daysScanned} / ${totalDays} · сообщений найдено всего: ${rawCount}`;
+      }
+    ).then((raw) => {
+      rawMessagesCache = raw;
+      loadingStatusEl.textContent = `Готово. Просканировано сообщений: ${raw.length}.`;
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
+      return raw;
+    }).catch((e) => {
+      console.error('[ChatterGuesser] Ошибка парсинга логов:', e);
+      setupErrorEl.textContent = `Не удалось загрузить логи: ${e.message}`;
+      setupErrorEl.classList.remove('hidden');
+      loadingStatusEl.textContent = '';
+      btnStart.disabled = true;
+      btnStart.textContent = 'Начать игру';
+      throw e;
+    });
+
+    return logsScanPromise;
+  }
+
+  // ===== Запуск игры =====
+
   document.getElementById('btn-start-game').addEventListener('click', async () => {
     setupErrorEl.classList.add('hidden');
+
+    if (!rawMessagesCache) {
+      // На случай если кнопка стала кликабельной до завершения сканирования —
+      // ждём текущий промис вместо повторного запуска парсинга.
+      if (logsScanPromise) {
+        btnStart.disabled = true;
+        btnStart.textContent = 'Парсинг логов...';
+        try {
+          await logsScanPromise;
+        } catch (e) {
+          return; // ошибка уже отображена в startFullLogsScan
+        }
+      } else {
+        setupErrorEl.textContent = 'Логи ещё не загружены. Подождите завершения парсинга.';
+        setupErrorEl.classList.remove('hidden');
+        return;
+      }
+    }
+
     btnStart.disabled = true;
-    btnStart.textContent = 'Загрузка логов...';
+    btnStart.textContent = 'Формирование раундов...';
 
     try {
-      const neededCount = settings.rounds * settings.variants + 5; // небольшой запас
+      const { pool, uniqueAuthorCount } = MessagePool.filterPool(rawMessagesCache, {
+        minLength: settings.minLength,
+        maxLength: settings.maxLength,
+        authorFilter: settings.authorFilter,
+        minMessages: settings.minMessages,
+        mods,
+        vips,
+      });
 
-      const { pool, daysScanned, totalRawMessages } = await MessagePool.buildPool(
-        {
-          channel: CONFIG.LOGS_CHANNEL,
-          minLength: settings.minLength,
-          maxLength: settings.maxLength,
-          authorFilter: settings.authorFilter,
-          minMessages: settings.minMessages,
-          neededCount,
-          mods,
-          vips,
-        },
-        ({ daysScanned, rawCount, validCount }) => {
-          loadingStatusEl.textContent = `Просканировано дней: ${daysScanned} · сообщений найдено: ${validCount} / ${neededCount}`;
-        }
-      );
-
-      if (pool.length < settings.variants * 2) {
+      if (pool.length < settings.variants) {
         throw new Error(
-          `Недостаточно сообщений под текущие фильтры (найдено ${pool.length} после ${daysScanned} дней сканирования логов из ${totalRawMessages} всего). Попробуйте ослабить фильтры: уменьшить "минимум сообщений автора" или расширить диапазон длины.`
+          `Недостаточно сообщений под текущие фильтры (найдено ${pool.length} сообщений из ${rawMessagesCache.length} просканированных всего). Попробуйте ослабить фильтры: уменьшить "минимум сообщений автора" или расширить диапазон длины.`
+        );
+      }
+
+      if (uniqueAuthorCount < settings.variants) {
+        throw new Error(
+          `Под текущие фильтры подходит только ${uniqueAuthorCount} уникальных авторов, а для ${settings.variants} вариантов в раунде нужно минимум ${settings.variants}. Ослабьте фильтры (уменьшите "минимум сообщений автора" или смените фильтр "Только от").`
         );
       }
 
@@ -259,13 +315,9 @@
         throw new Error('Не удалось сформировать ни одного раунда. Ослабьте фильтры.');
       }
 
-      loadingStatusEl.textContent = '';
       startGameUI();
     } catch (e) {
       console.error('[ChatterGuesser] Ошибка запуска игры:', e);
-      // Гарантируем, что пользователь увидит ошибку независимо от того,
-      // какой экран сейчас активен (на случай если экран успел переключиться
-      // до момента сбоя).
       showScreen('setup');
       setupErrorEl.textContent = e.message;
       setupErrorEl.classList.remove('hidden');
