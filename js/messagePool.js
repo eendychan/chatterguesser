@@ -33,24 +33,13 @@ const MessagePool = (() => {
     }
   }
 
-  // Основная функция: собирает пригодный пул сообщений под все фильтры.
-  // Двухпроходный подход:
-  //   1) сканируем логи по дням, копим ВСЕ сообщения (для подсчёта активности авторов)
-  //   2) применяем фильтр длины + автора + минимума сообщений автора
-  // Если на найденном диапазоне дат не набралось достаточно сообщений —
-  // расширяем диапазон (это уже делает LogsService.collectMessages),
-  // используя пересчёт счётчиков по мере роста охвата.
-  async function buildPool(options, onProgress) {
-    const {
-      channel,
-      minLength,
-      maxLength,
-      authorFilter,
-      minMessages,
-      neededCount, // сколько валидных сообщений минимум нужно набрать (rounds * variants, с запасом)
-      mods,
-      vips,
-    } = options;
+  // Сканирует ВЕСЬ доступный диапазон логов (от стартовой даты до сегодняшнего
+  // дня включительно) и возвращает массив сырых сообщений без применения
+  // каких-либо фильтров. Это единственная функция, которая обращается к сети —
+  // вызывается один раз при входе на экран настроек, до того как кнопка
+  // "Начать игру" станет доступной.
+  async function scanAllMessages(options, onProgress) {
+    const { channel } = options;
 
     const start = CONFIG.LOGS_START_DATE;
     const end = (() => {
@@ -58,41 +47,49 @@ const MessagePool = (() => {
       return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
     })();
 
-    // Собираем сырые сообщения по дням, расширяя диапазон, пока не наберём
-    // достаточно ПОСЛЕ фильтрации. Поскольку фильтр "минимум сообщений автора"
-    // зависит от общего охвата, пересчитываем кандидатов на каждом шаге.
     const allDates = enumerateDatesDescending(start, end);
     let rawMessages = [];
     let daysScanned = 0;
-    let validPool = [];
 
     for (const date of allDates) {
-      if (daysScanned >= CONFIG.MAX_DAYS_LOOKBACK_EXPANSION) break;
-
       const dayMessages = await LogsService.fetchDay(channel, date.year, date.month, date.day);
       daysScanned++;
       rawMessages = rawMessages.concat(dayMessages);
 
-      // Пересчитываем активность авторов на всём собранном охвате
-      const counts = countMessagesByUser(rawMessages);
-
-      validPool = rawMessages.filter((msg) => {
-        if (!passesLength(msg.text, minLength, maxLength)) return false;
-        if (!passesAuthorFilter(msg.user, authorFilter, mods, vips)) return false;
-        const authorCount = counts.get(msg.user) || 0;
-        if (authorCount < minMessages) return false;
-        return true;
-      });
-
-      if (onProgress) onProgress({ daysScanned, rawCount: rawMessages.length, validCount: validPool.length });
-
-      if (validPool.length >= neededCount) break;
+      if (onProgress) {
+        onProgress({
+          daysScanned,
+          totalDays: allDates.length,
+          rawCount: rawMessages.length,
+        });
+      }
     }
 
+    return rawMessages;
+  }
+
+  // Синхронно фильтрует уже загруженный пул сырых сообщений под текущие
+  // настройки (длина, автор, минимум сообщений автора). Не делает сетевых
+  // запросов — вызывается мгновенно при каждом клике "Начать игру", что
+  // позволяет менять фильтры без повторного скачивания логов.
+  function filterPool(rawMessages, options) {
+    const { minLength, maxLength, authorFilter, minMessages, mods, vips } = options;
+
+    const counts = countMessagesByUser(rawMessages);
+
+    const pool = rawMessages.filter((msg) => {
+      if (!passesLength(msg.text, minLength, maxLength)) return false;
+      if (!passesAuthorFilter(msg.user, authorFilter, mods, vips)) return false;
+      const authorCount = counts.get(msg.user) || 0;
+      if (authorCount < minMessages) return false;
+      return true;
+    });
+
+    const uniqueAuthors = new Set(pool.map((m) => m.user));
+
     return {
-      pool: validPool,
-      daysScanned,
-      totalRawMessages: rawMessages.length,
+      pool,
+      uniqueAuthorCount: uniqueAuthors.size,
     };
   }
 
@@ -127,7 +124,8 @@ const MessagePool = (() => {
   }
 
   return {
-    buildPool,
+    scanAllMessages,
+    filterPool,
     countMessagesByUser,
     sampleUnique,
   };
