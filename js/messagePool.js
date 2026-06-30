@@ -33,34 +33,42 @@ const MessagePool = (() => {
     }
   }
 
-  // Сканирует ВЕСЬ доступный диапазон логов (от стартовой даты до сегодняшнего
-  // дня включительно) и возвращает массив сырых сообщений без применения
-  // каких-либо фильтров. Это единственная функция, которая обращается к сети —
-  // вызывается один раз при входе на экран настроек, до того как кнопка
-  // "Начать игру" станет доступной.
+  // Парсит строку "ник1 ник2 ник3" в Set из ников в нижнем регистре
+  function parseChatterList(str) {
+    if (!str) return new Set();
+    return new Set(
+      str
+        .split(/\s+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+  }
+
+  // Сканирует диапазон логов [start, end] (включительно) и возвращает массив
+  // сырых сообщений без применения каких-либо фильтров. Это единственная
+  // функция, которая обращается к сети — вызывается при входе на экран
+  // настроек (или при смене диапазона дат / нажатии "Парсить всё"), до того
+  // как кнопка "Начать игру" станет доступной.
   async function scanAllMessages(options, onProgress) {
-    const { channel } = options;
+    const { channel, startDate, endDate } = options;
 
-    const start = CONFIG.LOGS_START_DATE;
-    const end = (() => {
-      const now = new Date();
-      return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
-    })();
-
-    const allDates = enumerateDatesDescending(start, end);
+    const allDates = LogsService.enumerateDatesDescending(startDate, endDate);
     let rawMessages = [];
     let daysScanned = 0;
+    const chattersSeen = new Set();
 
     for (const date of allDates) {
       const dayMessages = await LogsService.fetchDay(channel, date.year, date.month, date.day);
       daysScanned++;
       rawMessages = rawMessages.concat(dayMessages);
+      for (const msg of dayMessages) chattersSeen.add(msg.user);
 
       if (onProgress) {
         onProgress({
           daysScanned,
           totalDays: allDates.length,
           rawCount: rawMessages.length,
+          chattersCount: chattersSeen.size,
         });
       }
     }
@@ -69,15 +77,17 @@ const MessagePool = (() => {
   }
 
   // Синхронно фильтрует уже загруженный пул сырых сообщений под текущие
-  // настройки (длина, автор, минимум сообщений автора). Не делает сетевых
-  // запросов — вызывается мгновенно при каждом клике "Начать игру", что
-  // позволяет менять фильтры без повторного скачивания логов.
+  // настройки (длина, автор, минимум сообщений автора, игнор-лист). Не делает
+  // сетевых запросов — вызывается мгновенно при каждом клике "Начать игру",
+  // что позволяет менять фильтры без повторного скачивания логов.
   function filterPool(rawMessages, options) {
-    const { minLength, maxLength, authorFilter, minMessages, mods, vips } = options;
+    const { minLength, maxLength, authorFilter, minMessages, mods, vips, ignoredChattersStr } = options;
 
+    const ignored = parseChatterList(ignoredChattersStr);
     const counts = countMessagesByUser(rawMessages);
 
     const pool = rawMessages.filter((msg) => {
+      if (ignored.has(msg.user)) return false;
       if (!passesLength(msg.text, minLength, maxLength)) return false;
       if (!passesAuthorFilter(msg.user, authorFilter, mods, vips)) return false;
       const authorCount = counts.get(msg.user) || 0;
@@ -93,29 +103,6 @@ const MessagePool = (() => {
     };
   }
 
-  function enumerateDatesDescending(start, end) {
-    function isBefore(a, b) {
-      if (a.year !== b.year) return a.year < b.year;
-      if (a.month !== b.month) return a.month < b.month;
-      return a.day < b.day;
-    }
-    function subtractDay(y, m, d) {
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      dt.setUTCDate(dt.getUTCDate() - 1);
-      return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
-    }
-
-    const dates = [];
-    let cursor = { ...end };
-    while (true) {
-      dates.push({ ...cursor });
-      if (cursor.year === start.year && cursor.month === start.month && cursor.day === start.day) break;
-      if (isBefore(cursor, start)) break;
-      cursor = subtractDay(cursor.year, cursor.month, cursor.day);
-    }
-    return dates;
-  }
-
   // Выбирает N случайных уникальных по тексту сообщений из пула
   function sampleUnique(pool, n, excludeTexts = new Set()) {
     const available = pool.filter((m) => !excludeTexts.has(m.text));
@@ -128,5 +115,6 @@ const MessagePool = (() => {
     filterPool,
     countMessagesByUser,
     sampleUnique,
+    parseChatterList,
   };
 })();
