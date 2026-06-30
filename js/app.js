@@ -262,9 +262,14 @@
       loadingStatusEl.textContent = '';
       startGameUI();
     } catch (e) {
-      console.error(e);
+      console.error('[ChatterGuesser] Ошибка запуска игры:', e);
+      // Гарантируем, что пользователь увидит ошибку независимо от того,
+      // какой экран сейчас активен (на случай если экран успел переключиться
+      // до момента сбоя).
+      showScreen('setup');
       setupErrorEl.textContent = e.message;
       setupErrorEl.classList.remove('hidden');
+      setupErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } finally {
       btnStart.disabled = false;
       btnStart.textContent = 'Начать игру';
@@ -280,14 +285,17 @@
   const leaderboardListEl = document.getElementById('leaderboard-list');
 
   function startGameUI() {
+    // Сначала готовим контент первого раунда, и только если это прошло без
+    // ошибок — переключаем экран. Иначе ошибка ловится в setup-экране, который
+    // к этому моменту уже скрыт, и игра выглядит "зависшей" на пустом экране.
+    renderCurrentRound();
+
     showScreen('game');
     chatSidebarEl.classList.toggle('hidden', settings.mode !== 'chat');
 
     if (settings.mode === 'chat') {
       setupChatVoting();
     }
-
-    renderCurrentRound();
   }
 
   function renderCurrentRound() {
