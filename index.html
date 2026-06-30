@@ -28,14 +28,64 @@
         <h1>ChatterGuesser</h1>
         <div class="subtitle">// канал логов: <span id="logs-channel-label"></span></div>
       </div>
-      <div class="user-chip">
-        <img id="user-avatar" src="" alt="">
-        <span id="user-name"></span>
-        <button id="btn-logout" class="logout-link">выйти</button>
+      <div class="header-actions">
+        <a id="btn-links" class="btn-links" href="#" target="_blank" rel="noopener">Ссылки</a>
+        <div class="user-chip">
+          <img id="user-avatar" src="" alt="">
+          <span id="user-name"></span>
+          <button id="btn-logout" class="logout-link">выйти</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Кнопка "Свой канал" с выпадающим списком пресетов -->
+    <div class="channel-picker-wrap">
+      <button id="btn-channel-picker" class="channel-picker-btn">
+        <img id="channel-picker-avatar" class="channel-avatar" src="" alt="">
+        <span id="channel-picker-label">xah0b</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+      <div id="channel-dropdown" class="channel-dropdown">
+        <div id="channel-preset-list" class="channel-preset-list"></div>
+        <button id="btn-add-custom-channel" class="channel-preset-item custom-channel-item">
+          + Добавить свой канал
+        </button>
       </div>
     </div>
 
     <div id="setup-error" class="error-banner hidden"></div>
+
+    <!-- Панель выбора диапазона дат парсинга -->
+    <div class="panel">
+      <h2>Диапазон парсинга логов</h2>
+      <div class="date-range-row">
+        <div class="date-input-group">
+          <label>С даты</label>
+          <div class="date-fields">
+            <input type="number" id="scan-start-day" class="date-field" placeholder="ДД" min="1" max="31">
+            <input type="number" id="scan-start-month" class="date-field" placeholder="ММ" min="1" max="12">
+            <input type="number" id="scan-start-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+          </div>
+        </div>
+        <div class="date-range-arrow">→</div>
+        <div class="date-input-group">
+          <label>По дату</label>
+          <div class="date-fields">
+            <input type="number" id="scan-end-day" class="date-field" placeholder="ДД" min="1" max="31">
+            <input type="number" id="scan-end-month" class="date-field" placeholder="ММ" min="1" max="12">
+            <input type="number" id="scan-end-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+          </div>
+        </div>
+        <button id="btn-apply-range" class="btn-secondary">Спарсить диапазон</button>
+      </div>
+      <div class="date-range-footer">
+        <div class="parse-all-wrap">
+          <button id="btn-parse-all" class="btn-parse-all">ПАРСИТЬ ВСЁ</button>
+          <div class="tooltip-bubble">Придется ждать дольше! Будут спаршены сразу ВСЕ логи сообщений с <span id="parse-all-tooltip-date">14.06.2025</span> по сегодня.</div>
+        </div>
+        <div id="loading-status" class="loading-status"></div>
+      </div>
+    </div>
 
     <div class="panel">
       <h2>Фильтры раунда</h2>
@@ -109,6 +159,23 @@
             Випов и Модеров
           </button>
         </div>
+
+        <!-- Поля ручного ввода модов/випов — видны только если Helix не дал доступ -->
+        <div id="manual-mods-wrap" class="manual-list-wrap hidden">
+          <label>Twitch не дал доступ к списку модераторов этого канала. Впишите ники модеров через пробел:</label>
+          <textarea id="manual-mods-input" class="manual-list-input" rows="2"></textarea>
+        </div>
+        <div id="manual-vips-wrap" class="manual-list-wrap hidden">
+          <label>Twitch не дал доступ к списку VIP этого канала. Впишите ники випов через пробел:</label>
+          <textarea id="manual-vips-input" class="manual-list-input" rows="2"></textarea>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Игнорировать чаттеров</span>
+        </div>
+        <textarea id="input-ignored-chatters" class="manual-list-input" rows="2" placeholder="ник1 ник2 ник3"></textarea>
       </div>
     </div>
 
@@ -123,15 +190,36 @@
           <div class="mode-title">Играть с чатом</div>
           <div class="mode-desc">Зрители голосуют номерами в чат. Топ угадавших отображается рядом с игрой.</div>
         </button>
+        <button class="mode-card" data-mode="live">
+          <div class="mode-title">Живая игра</div>
+          <div class="mode-desc">Загадайте вопрос — зрители пишут ответы 60 секунд, угадывайте кто что написал прямо из свежих сообщений.</div>
+        </button>
       </div>
     </div>
 
     <div class="start-game-bar">
-      <div style="flex:1;">
-        <div id="loading-status" class="loading-status"></div>
-      </div>
       <button id="btn-start-game" class="btn-start" disabled>Начать игру</button>
     </div>
+  </div>
+
+  <!-- Экран "живой игры" — настройка вопроса -->
+  <div id="live-setup-screen" class="live-setup-screen hidden">
+    <div class="panel live-setup-panel">
+      <h2>Живая игра</h2>
+      <p class="live-setup-desc">Напишите вопрос или задание для чата вслух или сюда — затем запустите таймер. Зрители будут писать ответы в чат Twitch ровно 60 секунд.</p>
+      <input type="text" id="live-prompt-input" class="live-prompt-input" placeholder="Например: напишите своё любимое блюдо">
+      <button id="btn-live-start-timer" class="btn-start">Запустить таймер (60 сек)</button>
+      <button id="btn-live-back" class="btn-secondary">← Назад к настройкам</button>
+    </div>
+  </div>
+
+  <!-- Экран таймера "живой игры" -->
+  <div id="live-timer-screen" class="live-timer-screen hidden">
+    <div class="live-timer-circle">
+      <span id="live-timer-value">60</span>
+    </div>
+    <div class="live-timer-label">Чат пишет ответы...</div>
+    <div id="live-timer-collected" class="live-timer-collected">Собрано сообщений: 0</div>
   </div>
 
   <!-- Игровой экран -->
@@ -139,7 +227,16 @@
     <div class="game-main">
       <div class="round-progress">
         <span id="round-progress-label">Раунд 1 / 10</span>
-        <span id="score-progress-label"></span>
+        <div class="round-progress-right">
+          <span id="score-progress-label"></span>
+          <div id="exit-game-wrap" class="exit-game-wrap">
+            <button id="btn-exit-game" class="btn-exit">Выйти</button>
+            <div id="exit-confirm" class="exit-confirm hidden">
+              <button id="btn-exit-confirm" class="btn-exit-confirm" title="Да, выйти">✓</button>
+              <button id="btn-exit-cancel" class="btn-exit-cancel" title="Отмена">✕</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="guess-header">
@@ -166,6 +263,30 @@
     <div class="big-score" id="final-score">0 / 10</div>
     <p id="final-comment" style="color: var(--text-dim);"></p>
     <button id="btn-restart" class="btn-restart">Сыграть ещё раз</button>
+  </div>
+
+  <!-- Попап добавления своего канала -->
+  <div id="custom-channel-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <button id="btn-close-custom-channel" class="modal-close">✕</button>
+      <h2>Добавить свой канал</h2>
+      <a id="custom-logs-site-link" href="#" target="_blank" rel="noopener" class="btn-secondary modal-link-btn">Перейти на сайт логов →</a>
+      <ol class="modal-steps">
+        <li>Перейди на сайт и через календарь найди самый первый день, когда начали вести логи твоего чата.</li>
+        <li>Ниже укажи свой ник и дату в формате ДД ММ ГГГГ.</li>
+        <li>Подожди пока спарсятся логи и сможешь играть!</li>
+      </ol>
+      <div class="custom-channel-form">
+        <input type="text" id="custom-channel-login" class="custom-channel-input" placeholder="Ник канала">
+        <div class="date-fields">
+          <input type="number" id="custom-channel-day" class="date-field" placeholder="ДД" min="1" max="31">
+          <input type="number" id="custom-channel-month" class="date-field" placeholder="ММ" min="1" max="12">
+          <input type="number" id="custom-channel-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+        </div>
+        <button id="btn-confirm-custom-channel" class="btn-start">Применить</button>
+      </div>
+      <div id="custom-channel-error" class="auth-error hidden"></div>
+    </div>
   </div>
 
   <script src="js/config.js"></script>
