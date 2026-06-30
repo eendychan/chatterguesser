@@ -591,7 +591,7 @@
 
       if (secondsLeft <= 0) {
         clearInterval(liveTimerInterval);
-        ChatListener.disconnect();
+        cleanupChatSession();
         startLiveGame();
       }
     }, 1000);
@@ -619,9 +619,27 @@
 
   // ===== Игровой экран =====
 
+  let chatStatusInterval = null;
+
+  function cleanupChatSession() {
+    ChatListener.disconnect();
+    if (chatStatusInterval) {
+      clearInterval(chatStatusInterval);
+      chatStatusInterval = null;
+    }
+  }
+
   function setupGameUI() {
     const isChat = settings.mode === 'chat';
-    document.getElementById('chat-sidebar').classList.toggle('hidden', !isChat);
+    const sidebar = document.getElementById('chat-sidebar');
+    sidebar.classList.toggle('hidden', !isChat);
+
+    // Всегда сбрасываем лидерборд и статус соединения перед новой игрой
+    document.getElementById('leaderboard-list').innerHTML = '';
+    const statusEl = document.getElementById('connection-status');
+    statusEl.textContent = 'подключение...';
+    statusEl.className = 'connection-status disconnected';
+
     if (isChat) setupChatVoting();
     setupExitButton();
   }
@@ -727,7 +745,7 @@
   });
 
   document.getElementById('btn-exit-confirm').addEventListener('click', () => {
-    ChatListener.disconnect();
+    cleanupChatSession();
     if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
     showScreen('setup');
   });
@@ -738,8 +756,9 @@
 
   function setupChatVoting() {
     const statusEl = document.getElementById('connection-status');
-    statusEl.textContent = 'подключение...';
-    statusEl.className = 'connection-status disconnected';
+
+    // Чистим предыдущую сессию если была
+    cleanupChatSession();
 
     ChatListener.connect(AppState.channel, (msg) => {
       const num = parseInt(msg.text.trim(), 10);
@@ -749,15 +768,14 @@
       }
     });
 
-    const interval = setInterval(() => {
+    chatStatusInterval = setInterval(() => {
       const ok = ChatListener.isConnected();
       statusEl.textContent = ok ? 'подключено к чату' : 'переподключение...';
       statusEl.className = `connection-status ${ok ? 'connected' : 'disconnected'}`;
     }, 1000);
 
     window.addEventListener('beforeunload', () => {
-      clearInterval(interval);
-      ChatListener.disconnect();
+      cleanupChatSession();
     }, { once: true });
   }
 
@@ -783,7 +801,7 @@
   // ===== Финальный экран =====
 
   function showResults() {
-    ChatListener.disconnect();
+    cleanupChatSession();
     const score = GameEngine.getStreamerScore();
     document.getElementById('final-score').textContent = `${score.correct} / ${score.total}`;
     const pct = score.total > 0 ? score.correct / score.total : 0;
