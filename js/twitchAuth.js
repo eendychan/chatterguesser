@@ -109,12 +109,68 @@ const TwitchAuth = (() => {
     clearSession();
   }
 
-  // --- Helix: получение модераторов и VIP-ов канала ---
+  // --- Helix: получение модераторов и VIP-ов выбранного канала логов ---
+  // ВАЖНО: Helix отдаёт список модов/VIP только если токен принадлежит самому
+  // broadcaster-у этого канала (или, для модов, человеку с соответствующими
+  // правами). Если выбранный канал — это чужой канал, у обычного
+  // авторизовавшегося стримера прав не будет, и Helix ответит 401/403.
+  // В этом случае возвращаем { ok: false }, чтобы UI показал поля ручного
+  // ввода ников вместо того, чтобы молча подставлять пустой список.
 
-  async function fetchModerators() {
-    if (!isAuthenticated()) return [];
+  const channelUserIdCache = new Map(); // login -> user_id
+
+  async function resolveChannelUserId(channelLogin) {
+    if (channelUserIdCache.has(channelLogin)) return channelUserIdCache.get(channelLogin);
     try {
-      const params = new URLSearchParams({ broadcaster_id: state.userId, first: '100' });
+      const params = new URLSearchParams({ login: channelLogin });
+      const res = await fetch(`https://api.twitch.tv/helix/users?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${state.accessToken}`,
+          'Client-Id': CONFIG.TWITCH_CLIENT_ID,
+        },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.data || !data.data.length) return null;
+      const id = data.data[0].id;
+      channelUserIdCache.set(channelLogin, id);
+      return id;
+    } catch (e) {
+      console.warn('Не удалось определить user_id канала:', e);
+      return null;
+    }
+  }
+
+  // Получает базовую информацию о канале (для аватарки в кнопке "Свой канал")
+  async function fetchChannelInfo(channelLogin) {
+    if (!isAuthenticated()) return null;
+    try {
+      const params = new URLSearchParams({ login: channelLogin });
+      const res = await fetch(`https://api.twitch.tv/helix/users?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${state.accessToken}`,
+          'Client-Id': CONFIG.TWITCH_CLIENT_ID,
+        },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.data || !data.data.length) return null;
+      const u = data.data[0];
+      channelUserIdCache.set(channelLogin, u.id);
+      return { login: u.login, displayName: u.display_name, profileImageUrl: u.profile_image_url, id: u.id };
+    } catch (e) {
+      console.warn('Не удалось получить данные канала:', e);
+      return null;
+    }
+  }
+
+  async function fetchModerators(channelLogin) {
+    if (!isAuthenticated()) return { ok: false, list: [] };
+    const channelId = await resolveChannelUserId(channelLogin);
+    if (!channelId) return { ok: false, list: [] };
+
+    try {
+      const params = new URLSearchParams({ broadcaster_id: channelId, first: '100' });
       const res = await fetch(`https://api.twitch.tv/helix/moderation/moderators?${params}`, {
         headers: {
           'Authorization': `Bearer ${state.accessToken}`,
@@ -122,21 +178,24 @@ const TwitchAuth = (() => {
         },
       });
       if (!res.ok) {
-        console.warn('Не удалось получить список модераторов:', res.status);
-        return [];
+        console.warn(`Нет доступа к списку модераторов канала ${channelLogin}:`, res.status);
+        return { ok: false, list: [] };
       }
       const data = await res.json();
-      return (data.data || []).map(m => m.user_login.toLowerCase());
+      return { ok: true, list: (data.data || []).map((m) => m.user_login.toLowerCase()) };
     } catch (e) {
       console.warn('Ошибка запроса модераторов:', e);
-      return [];
+      return { ok: false, list: [] };
     }
   }
 
-  async function fetchVips() {
-    if (!isAuthenticated()) return [];
+  async function fetchVips(channelLogin) {
+    if (!isAuthenticated()) return { ok: false, list: [] };
+    const channelId = await resolveChannelUserId(channelLogin);
+    if (!channelId) return { ok: false, list: [] };
+
     try {
-      const params = new URLSearchParams({ broadcaster_id: state.userId, first: '100' });
+      const params = new URLSearchParams({ broadcaster_id: channelId, first: '100' });
       const res = await fetch(`https://api.twitch.tv/helix/channels/vips?${params}`, {
         headers: {
           'Authorization': `Bearer ${state.accessToken}`,
@@ -144,14 +203,14 @@ const TwitchAuth = (() => {
         },
       });
       if (!res.ok) {
-        console.warn('Не удалось получить список VIP:', res.status);
-        return [];
+        console.warn(`Нет доступа к списку VIP канала ${channelLogin}:`, res.status);
+        return { ok: false, list: [] };
       }
       const data = await res.json();
-      return (data.data || []).map(v => v.user_login.toLowerCase());
+      return { ok: true, list: (data.data || []).map((v) => v.user_login.toLowerCase()) };
     } catch (e) {
       console.warn('Ошибка запроса VIP:', e);
-      return [];
+      return { ok: false, list: [] };
     }
   }
 
@@ -164,5 +223,6 @@ const TwitchAuth = (() => {
     logout,
     fetchModerators,
     fetchVips,
+    fetchChannelInfo,
   };
 })();
