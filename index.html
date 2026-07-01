@@ -177,6 +177,26 @@
         </div>
         <textarea id="input-ignored-chatters" class="manual-list-input" rows="2" placeholder="ник1 ник2 ник3"></textarea>
       </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Разрешённые сообщения</span>
+        </div>
+        <div class="filter-hint">Фразы в кавычках через пробел. Сообщения, начинающиеся с них, проходят все фильтры (в т.ч. 7TV). Пример: <code>"!v" "!vanish"</code></div>
+        <textarea id="input-allowed-phrases" class="manual-list-input" rows="2" placeholder='"!v" "!vanish"'></textarea>
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-label">
+          <span class="name">Ограничитель 7TV</span>
+          <span id="emote-filter-label" class="filter-label-dim"></span>
+        </div>
+        <div class="emote-filter-toggle">
+          <button class="emote-filter-btn active" data-emote-filter="off">❌ Выключить</button>
+          <button class="emote-filter-btn" data-emote-filter="only_emotes">✅ Включить</button>
+          <button class="emote-filter-btn" data-emote-filter="no_emotes">💀 Вообще без смайлов</button>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -295,6 +315,8 @@
   <script src="js/messagePool.js"></script>
   <script src="js/gameEngine.js"></script>
   <script src="js/chatListener.js"></script>
+  <script src="js/lazyPool.js"></script>
+  <script src="js/sevenTv.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
