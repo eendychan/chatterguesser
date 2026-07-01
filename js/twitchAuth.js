@@ -41,8 +41,13 @@ const TwitchAuth = (() => {
 
   // Шаг 1: редирект на Twitch для авторизации
   function startLogin() {
-    // Используем полный URL для redirect_uri
-    const redirectUri = window.location.origin + window.location.pathname;
+    // Используем URI из конфига, но удаляем возможный trailing slash для совместимости
+    // Twitch чувствителен к слешу в конце
+    let redirectUri = CONFIG.TWITCH_REDIRECT_URI;
+    // Если URI заканчивается на '/', убираем его для единообразия
+    if (redirectUri.endsWith('/')) {
+      redirectUri = redirectUri.slice(0, -1);
+    }
     
     const params = new URLSearchParams({
       client_id: CONFIG.TWITCH_CLIENT_ID,
@@ -113,12 +118,6 @@ const TwitchAuth = (() => {
   }
 
   // --- Helix: получение модераторов и VIP-ов выбранного канала логов ---
-  // ВАЖНО: Helix отдаёт список модов/VIP только если токен принадлежит самому
-  // broadcaster-у этого канала (или, для модов, человеку с соответствующими
-  // правами). Если выбранный канал — это чужой канал, у обычного
-  // авторизовавшегося стримера прав не будет, и Helix ответит 401/403.
-  // В этом случае возвращаем { ok: false }, чтобы UI показал поля ручного
-  // ввода ников вместо того, чтобы молча подставлять пустой список.
 
   const channelUserIdCache = new Map(); // login -> user_id
 
