@@ -511,15 +511,26 @@
     try {
       const { pool, uniqueAuthorCount } = await buildPoolForGame();
 
+      const rawTotal = LazyPool.getRaw().length;
       if (pool.length < settings.variants) {
-        const raw = LazyPool.getRaw();
+        // Пробуем понять причину: если без фильтра minMessages пул не пуст — значит порог завышен
+        const { pool: poolNoMin } = MessagePool.filterPool(LazyPool.getRaw(), {
+          minLength: settings.minLength, maxLength: settings.maxLength,
+          authorFilter: settings.authorFilter, minMessages: 0,
+          mods, vips, ignoredChattersStr: settings.ignoredChatters,
+          allowedPhrasesStr: settings.allowedPhrases,
+          emoteFilter: settings.emoteFilter, emotes: channelEmotes,
+        });
+        const hint = poolNoMin.length > 0
+          ? ` Возможно, порог "мин. сообщений автора" (${settings.minMessages.toLocaleString()}) слишком высок для спаршенного диапазона — попробуйте снизить его или спарсить больше логов.`
+          : ` Попробуйте ослабить фильтры длины/автора или спарсить больше логов.`;
         throw new Error(
-          `Недостаточно сообщений под фильтры (найдено ${pool.length} из ${raw.length.toLocaleString()} спаршенных). Ослабьте фильтры или спарсите больше логов.`
+          `Недостаточно сообщений под фильтры: найдено ${pool.length} из ${rawTotal.toLocaleString()} спаршенных.${hint}`
         );
       }
       if (uniqueAuthorCount < settings.variants) {
         throw new Error(
-          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants}. Ослабьте фильтры.`
+          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants} для ${settings.variants} вариантов. Ослабьте фильтры или спарсите больше логов.`
         );
       }
 
