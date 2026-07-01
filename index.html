@@ -26,7 +26,6 @@
     <div class="setup-header">
       <div class="title-block">
         <h1>ChatterGuesser</h1>
-        <div class="subtitle">// канал логов: <span id="logs-channel-label"></span></div>
       </div>
       <div class="header-actions">
         <a id="btn-links" class="btn-links" href="#" target="_blank" rel="noopener">Ссылки</a>
@@ -80,7 +79,7 @@
       <!-- lazy: просто статус -->
       <div id="parse-panel-lazy" class="parse-sub-panel">
         <div class="parse-lazy-note">Перед первым раундом будет автоматически набрано минимум 10 000 сообщений от 100+ чаттеров. Каждый следующий раунд — 3 случайных дня фоном. Накопленные данные сохраняются между играми.</div>
-        <div class="parse-lazy-note warn">Фильтр <b>«Мин. сообщений автора»</b> при этом режиме применяется только к уже загруженным данным — если данных мало, снизьте его или играйте дольше.</div>
+        <div class="parse-lazy-note warn">Фильтр <b>«Мин. сообщений чаттера»</b> при этом режиме применяется только к уже загруженным данным — если данных мало, снизьте его или играйте дольше.</div>
       </div>
 
       <!-- full: кнопка ПАРСИТЬ ВСЁ -->
@@ -157,7 +156,7 @@
 
       <div class="filter-row">
         <div class="filter-label">
-          <span class="name">Минимум сообщений автора</span>
+          <span class="name">Минимум сообщений чаттера</span>
           <input type="number" id="input-min-messages" class="filter-value-input" min="100" value="5000" style="width: 88px;">
         </div>
         <input type="range" id="range-min-messages" min="100" max="30000" value="5000" step="100">
