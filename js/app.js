@@ -587,14 +587,14 @@
         });
         const hint = poolNoMin.length > 0
           ? ` Порог «мин. сообщений автора» (адаптирован до ${effectiveMinMessages.toLocaleString()}) всё равно высок. Снизьте его в настройках или ${settings.parseMode === 'lazy' ? 'продолжайте игру — данных станет больше' : 'спарсите больше логов'}.`
-          : ` Ослабьте фильтры длины или фильтр автора.`;
+          : ` Ослабьте фильтры длины или фильтр чаттера.`;
         throw new Error(
           `Недостаточно сообщений под фильтры: найдено ${pool.length} из ${rawTotal.toLocaleString()} спаршенных.${hint}`
         );
       }
       if (uniqueAuthorCount < settings.variants) {
         throw new Error(
-          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants}. Ослабьте фильтры.`
+          `Только ${uniqueAuthorCount} уникальных чаттеров — нужно минимум ${settings.variants}. Ослабьте фильтры.`
         );
       }
 
