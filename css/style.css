@@ -1248,3 +1248,86 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(145, 70, 255, 0.12);
   color: var(--text);
 }
+
+/* ===== Переключатель режима парсинга ===== */
+
+.parse-mode-panel {
+  margin-bottom: 20px;
+}
+
+.parse-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 600px) {
+  .parse-mode-tabs { grid-template-columns: 1fr; }
+}
+
+.parse-mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  text-align: left;
+  color: var(--text-dim);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.parse-mode-tab:hover {
+  border-color: var(--purple);
+  color: var(--text);
+}
+
+.parse-mode-tab.active {
+  border-color: var(--purple);
+  background: rgba(145, 70, 255, 0.1);
+  color: var(--text);
+}
+
+.parse-mode-icon {
+  font-size: 20px;
+  margin-bottom: 2px;
+}
+
+.parse-mode-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.parse-mode-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.parse-sub-panel {
+  margin-top: 4px;
+}
+
+.parse-lazy-note {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.parse-lazy-note.warn {
+  border-left: 3px solid var(--amber);
+  color: var(--text);
+}
+
+.parse-lazy-note b {
+  color: var(--amber);
+  font-weight: 700;
+}
