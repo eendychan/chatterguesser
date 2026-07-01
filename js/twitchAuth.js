@@ -39,15 +39,19 @@ const TwitchAuth = (() => {
     return { ...state };
   }
 
+  // Получаем правильный redirect_uri из текущего URL
+  function getRedirectUri() {
+    // Берем текущий URL без параметров и без хэша
+    const currentUrl = window.location.origin + window.location.pathname;
+    // Убираем trailing slash, если он есть (для единообразия)
+    return currentUrl.endsWith('/') ? currentUrl.slice(0, -1) : currentUrl;
+  }
+
   // Шаг 1: редирект на Twitch для авторизации
   function startLogin() {
-    // Используем URI из конфига, но удаляем возможный trailing slash для совместимости
-    // Twitch чувствителен к слешу в конце
-    let redirectUri = CONFIG.TWITCH_REDIRECT_URI;
-    // Если URI заканчивается на '/', убираем его для единообразия
-    if (redirectUri.endsWith('/')) {
-      redirectUri = redirectUri.slice(0, -1);
-    }
+    const redirectUri = getRedirectUri();
+    
+    console.log('[TwitchAuth] Redirect URI:', redirectUri);
     
     const params = new URLSearchParams({
       client_id: CONFIG.TWITCH_CLIENT_ID,
