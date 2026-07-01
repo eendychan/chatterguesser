@@ -1079,3 +1079,57 @@ input[type="range"]::-moz-range-thumb {
 .custom-channel-form { display:flex; flex-direction:column; gap:10px; }
 .custom-channel-input { font-family:var(--font-ui); font-size:13px; }
 .custom-channel-form .btn-start { width:100%; }
+
+/* ===== Логотип ===== */
+
+/* Логотип на экране авторизации */
+.logo-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.auth-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  box-shadow: 0 0 40px rgba(145, 70, 255, 0.25), 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: fadeInUp 0.6s 0.05s ease both;
+  object-fit: contain;
+  background: var(--bg-elevated);
+  padding: 6px;
+}
+
+/* Логотип в хедере настроек */
+.title-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  box-shadow: 0 0 16px rgba(145, 70, 255, 0.15);
+  object-fit: contain;
+  background: var(--bg-elevated);
+  padding: 3px;
+}
+
+/* Адаптив для мобильных */
+@media (max-width: 560px) {
+  .auth-logo {
+    width: 72px;
+    height: 72px;
+  }
+  .header-logo {
+    width: 28px;
+    height: 28px;
+  }
+  .title-block h1 {
+    font-size: 18px;
+  }
+}
