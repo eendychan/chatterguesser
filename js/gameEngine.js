@@ -21,7 +21,7 @@ const GameEngine = (() => {
 
     const usersWithEnough = [...byUser.keys()];
     if (usersWithEnough.length < 2) {
-      throw new Error('Недостаточно разных авторов сообщений для формирования раундов. Ослабьте фильтры.');
+      throw new Error('Недостаточно разных чаттеров с сообщениями для формирования раундов. Ослабьте фильтры.');
     }
 
     const builtRounds = [];
