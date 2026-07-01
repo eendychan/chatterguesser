@@ -1,7 +1,6 @@
 // ChatterGuesser — построение пула сообщений с учётом всех фильтров
 const MessagePool = (() => {
 
-  // Считает кол-во сообщений на пользователя по уже собранным сырым сообщениям
   function countMessagesByUser(messages) {
     const counts = new Map();
     for (const msg of messages) {
@@ -17,19 +16,12 @@ const MessagePool = (() => {
 
   function passesAuthorFilter(user, authorFilter, mods, vips) {
     switch (authorFilter) {
-      case 'all':
-        return true;
-      case 'mods':
-        return mods.has(user);
-      case 'vips':
-        return vips.has(user);
-      case 'vips_mods':
-        return mods.has(user) || vips.has(user);
-      case 'regulars':
-        // "Работяги" — обычные чаттеры без бейджей мода/вип
-        return !mods.has(user) && !vips.has(user);
-      default:
-        return true;
+      case 'all':      return true;
+      case 'mods':     return mods.has(user);
+      case 'vips':     return vips.has(user);
+      case 'vips_mods':return mods.has(user) || vips.has(user);
+      case 'regulars': return !mods.has(user) && !vips.has(user);
+      default:         return true;
     }
   }
 
@@ -37,21 +29,46 @@ const MessagePool = (() => {
   function parseChatterList(str) {
     if (!str) return new Set();
     return new Set(
-      str
-        .split(/\s+/)
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
+      str.split(/\s+/).map(s => s.trim().toLowerCase()).filter(Boolean)
     );
   }
 
-  // Сканирует диапазон логов [start, end] (включительно) и возвращает массив
-  // сырых сообщений без применения каких-либо фильтров. Это единственная
-  // функция, которая обращается к сети — вызывается при входе на экран
-  // настроек (или при смене диапазона дат / нажатии "Парсить всё"), до того
-  // как кнопка "Начать игру" станет доступной.
+  // Парсит строку разрешённых фраз вида: "!v" "!vanish" "привет" -> Set<string>
+  // Формат: фразы в двойных кавычках через пробел
+  function parseAllowedPhrases(str) {
+    if (!str) return new Set();
+    const matches = str.match(/"([^"]+)"/g) || [];
+    return new Set(matches.map(m => m.replace(/"/g, '').toLowerCase()));
+  }
+
+  // Сообщение "разрешено" если начинается с одной из разрешённых фраз
+  function isAllowed(text, allowedPhrases) {
+    if (!allowedPhrases || allowedPhrases.size === 0) return false;
+    const lower = text.toLowerCase();
+    for (const phrase of allowedPhrases) {
+      if (lower.startsWith(phrase)) return true;
+    }
+    return false;
+  }
+
+  // Фильтр 7TV-смайликов
+  // mode: 'off' | 'only_emotes' | 'no_emotes'
+  function passes7tvFilter(text, mode, emotes) {
+    if (mode === 'off') return true;
+    if (mode === 'only_emotes') {
+      // Блокируем если сообщение состоит ТОЛЬКО из эмоутов (и пробелов)
+      return !SevenTV.isOnlyEmotes(text, emotes);
+    }
+    if (mode === 'no_emotes') {
+      // Блокируем если в сообщении есть ХОТЯ БЫ ОДИН эмоут
+      return !SevenTV.containsEmote(text, emotes);
+    }
+    return true;
+  }
+
+  // Полный парсинг всего диапазона (для кнопки "Спарсить диапазон" / "Парсить всё")
   async function scanAllMessages(options, onProgress) {
     const { channel, startDate, endDate } = options;
-
     const allDates = LogsService.enumerateDatesDescending(startDate, endDate);
     let rawMessages = [];
     let daysScanned = 0;
@@ -62,29 +79,27 @@ const MessagePool = (() => {
       daysScanned++;
       rawMessages = rawMessages.concat(dayMessages);
       for (const msg of dayMessages) chattersSeen.add(msg.user);
-
-      if (onProgress) {
-        onProgress({
-          daysScanned,
-          totalDays: allDates.length,
-          rawCount: rawMessages.length,
-          chattersCount: chattersSeen.size,
-        });
-      }
+      if (onProgress) onProgress({
+        daysScanned,
+        totalDays: allDates.length,
+        rawCount: rawMessages.length,
+        chattersCount: chattersSeen.size,
+      });
     }
-
     return rawMessages;
   }
 
-  // Синхронно фильтрует уже загруженный пул сырых сообщений под текущие
-  // настройки (длина, автор, минимум сообщений автора, игнор-лист). Не делает
-  // сетевых запросов — вызывается мгновенно при каждом клике "Начать игру",
-  // что позволяет менять фильтры без повторного скачивания логов.
+  // Синхронная фильтрация уже загруженного пула под все настройки
   function filterPool(rawMessages, options) {
-    const { minLength, maxLength, authorFilter, minMessages, mods, vips, ignoredChattersStr } = options;
+    const {
+      minLength, maxLength, authorFilter, minMessages,
+      mods, vips, ignoredChattersStr,
+      allowedPhrasesStr, emoteFilter, emotes,
+    } = options;
 
-    const ignored = parseChatterList(ignoredChattersStr);
-    const counts = countMessagesByUser(rawMessages);
+    const ignored        = parseChatterList(ignoredChattersStr);
+    const allowedPhrases = parseAllowedPhrases(allowedPhrasesStr || '');
+    const counts         = countMessagesByUser(rawMessages);
 
     const pool = rawMessages.filter((msg) => {
       if (ignored.has(msg.user)) return false;
@@ -92,20 +107,19 @@ const MessagePool = (() => {
       if (!passesAuthorFilter(msg.user, authorFilter, mods, vips)) return false;
       const authorCount = counts.get(msg.user) || 0;
       if (authorCount < minMessages) return false;
+      // Разрешённые сообщения обходят 7TV-фильтр
+      if (!passes7tvFilter(msg.text, emoteFilter || 'off', emotes || new Set())) {
+        if (!isAllowed(msg.text, allowedPhrases)) return false;
+      }
       return true;
     });
 
-    const uniqueAuthors = new Set(pool.map((m) => m.user));
-
-    return {
-      pool,
-      uniqueAuthorCount: uniqueAuthors.size,
-    };
+    const uniqueAuthors = new Set(pool.map(m => m.user));
+    return { pool, uniqueAuthorCount: uniqueAuthors.size };
   }
 
-  // Выбирает N случайных уникальных по тексту сообщений из пула
   function sampleUnique(pool, n, excludeTexts = new Set()) {
-    const available = pool.filter((m) => !excludeTexts.has(m.text));
+    const available = pool.filter(m => !excludeTexts.has(m.text));
     const shuffled = [...available].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, n);
   }
@@ -116,5 +130,6 @@ const MessagePool = (() => {
     countMessagesByUser,
     sampleUnique,
     parseChatterList,
+    parseAllowedPhrases,
   };
 })();
