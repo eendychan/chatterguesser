@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChatterGuesser</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="apple-touch-icon" href="logo.png">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -11,7 +14,10 @@
 
   <!-- Экран авторизации -->
   <div id="auth-screen" class="auth-screen hidden">
-    <div class="logo">CHATTERGUESSER</div>
+    <div class="logo-wrapper">
+      <img src="logo.png" alt="ChatterGuesser Logo" class="auth-logo">
+      <div class="logo">CHATTERGUESSER</div>
+    </div>
     <h1>Кто это <span class="accent">написал</span>?</h1>
     <p class="tagline">Угадывайте, кто из чата отправил сообщение. Авторизуйтесь через Twitch, чтобы начать — доступ действует до перезагрузки страницы.</p>
     <button id="btn-auth" class="btn-twitch-auth">
@@ -25,10 +31,11 @@
   <div id="setup-screen" class="setup-screen hidden">
     <div class="setup-header">
       <div class="title-block">
+        <img src="logo.png" alt="ChatterGuesser Logo" class="header-logo">
         <h1>ChatterGuesser</h1>
       </div>
       <div class="header-actions">
-        <a id="btn-links" class="btn-links" href="#" target="_blank" rel="noopener">Ссылки автора</a>
+        <a id="btn-links" class="btn-links" href="#" target="_blank" rel="noopener">Ссылки</a>
         <div class="user-chip">
           <img id="user-avatar" src="" alt="">
           <span id="user-name"></span>
