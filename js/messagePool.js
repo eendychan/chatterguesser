@@ -55,12 +55,12 @@ const MessagePool = (() => {
   // mode: 'off' | 'only_emotes' | 'no_emotes'
   function passes7tvFilter(text, mode, emotes) {
     if (mode === 'off') return true;
+    // Защита: если SevenTV модуль не загрузился — пропускаем всё
+    if (typeof SevenTV === 'undefined') return true;
     if (mode === 'only_emotes') {
-      // Блокируем если сообщение состоит ТОЛЬКО из эмоутов (и пробелов)
       return !SevenTV.isOnlyEmotes(text, emotes);
     }
     if (mode === 'no_emotes') {
-      // Блокируем если в сообщении есть ХОТЯ БЫ ОДИН эмоут
       return !SevenTV.containsEmote(text, emotes);
     }
     return true;
