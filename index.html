@@ -55,36 +55,69 @@
 
     <div id="setup-error" class="error-banner hidden"></div>
 
-    <!-- Панель выбора диапазона дат парсинга -->
-    <div class="panel">
-      <h2>Диапазон парсинга логов</h2>
-      <div class="date-range-row">
-        <div class="date-input-group">
-          <label>С даты</label>
-          <div class="date-fields">
-            <input type="number" id="scan-start-day" class="date-field" placeholder="ДД" min="1" max="31">
-            <input type="number" id="scan-start-month" class="date-field" placeholder="ММ" min="1" max="12">
-            <input type="number" id="scan-start-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+    <!-- Панель режима парсинга -->
+    <div class="panel parse-mode-panel">
+      <h2>Источник сообщений для игры</h2>
+
+      <div class="parse-mode-tabs">
+        <button class="parse-mode-tab active" data-parse-mode="lazy">
+          <span class="parse-mode-icon">⚡</span>
+          <span class="parse-mode-title">По ходу игры</span>
+          <span class="parse-mode-desc">Логи подгружаются автоматически перед каждым раундом. Игра начинается сразу.</span>
+        </button>
+        <button class="parse-mode-tab" data-parse-mode="full">
+          <span class="parse-mode-icon">📦</span>
+          <span class="parse-mode-title">Полный парсинг</span>
+          <span class="parse-mode-desc">Все логи загружаются до старта. Фильтры работают по всей истории.</span>
+        </button>
+        <button class="parse-mode-tab" data-parse-mode="range">
+          <span class="parse-mode-icon">📅</span>
+          <span class="parse-mode-title">Диапазон дат</span>
+          <span class="parse-mode-desc">Выберите конкретный период для парсинга.</span>
+        </button>
+      </div>
+
+      <!-- lazy: просто статус -->
+      <div id="parse-panel-lazy" class="parse-sub-panel">
+        <div class="parse-lazy-note">Перед первым раундом будет автоматически набрано минимум 10 000 сообщений от 100+ чаттеров. Каждый следующий раунд — 3 случайных дня фоном. Накопленные данные сохраняются между играми.</div>
+        <div class="parse-lazy-note warn">Фильтр <b>«Мин. сообщений автора»</b> при этом режиме применяется только к уже загруженным данным — если данных мало, снизьте его или играйте дольше.</div>
+      </div>
+
+      <!-- full: кнопка ПАРСИТЬ ВСЁ -->
+      <div id="parse-panel-full" class="parse-sub-panel hidden">
+        <div class="date-range-footer">
+          <div class="parse-all-wrap">
+            <button id="btn-parse-all" class="btn-parse-all">ПАРСИТЬ ВСЁ</button>
+            <div class="tooltip-bubble">Придется ждать дольше! Будут спаршены сразу ВСЕ логи сообщений с <span id="parse-all-tooltip-date">14.06.2025</span> по сегодня.</div>
           </div>
         </div>
-        <div class="date-range-arrow">→</div>
-        <div class="date-input-group">
-          <label>По дату</label>
-          <div class="date-fields">
-            <input type="number" id="scan-end-day" class="date-field" placeholder="ДД" min="1" max="31">
-            <input type="number" id="scan-end-month" class="date-field" placeholder="ММ" min="1" max="12">
-            <input type="number" id="scan-end-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+      </div>
+
+      <!-- range: диапазон дат -->
+      <div id="parse-panel-range" class="parse-sub-panel hidden">
+        <div class="date-range-row">
+          <div class="date-input-group">
+            <label>С даты</label>
+            <div class="date-fields">
+              <input type="number" id="scan-start-day" class="date-field" placeholder="ДД" min="1" max="31">
+              <input type="number" id="scan-start-month" class="date-field" placeholder="ММ" min="1" max="12">
+              <input type="number" id="scan-start-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+            </div>
           </div>
+          <div class="date-range-arrow">→</div>
+          <div class="date-input-group">
+            <label>По дату</label>
+            <div class="date-fields">
+              <input type="number" id="scan-end-day" class="date-field" placeholder="ДД" min="1" max="31">
+              <input type="number" id="scan-end-month" class="date-field" placeholder="ММ" min="1" max="12">
+              <input type="number" id="scan-end-year" class="date-field date-field-year" placeholder="ГГГГ" min="2019" max="2100">
+            </div>
+          </div>
+          <button id="btn-apply-range" class="btn-secondary">Спарсить</button>
         </div>
-        <button id="btn-apply-range" class="btn-secondary">Спарсить диапазон</button>
       </div>
-      <div class="date-range-footer">
-        <div class="parse-all-wrap">
-          <button id="btn-parse-all" class="btn-parse-all">ПАРСИТЬ ВСЁ</button>
-          <div class="tooltip-bubble">Придется ждать дольше! Будут спаршены сразу ВСЕ логи сообщений с <span id="parse-all-tooltip-date">14.06.2025</span> по сегодня.</div>
-        </div>
-        <div id="loading-status" class="loading-status"></div>
-      </div>
+
+      <div id="loading-status" class="loading-status"></div>
     </div>
 
     <div class="panel">
