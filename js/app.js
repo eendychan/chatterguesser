@@ -79,12 +79,25 @@
   document.getElementById('btn-auth').addEventListener('click', () => TwitchAuth.startLogin());
 
   async function initAuthFlow() {
-    if (TwitchAuth.loadFromSession()) { enterSetupScreen(); return; }
+    // Сначала пробуем загрузить сессию
+    if (TwitchAuth.loadFromSession()) {
+      // Если сессия есть, сразу переходим в настройки
+      enterSetupScreen();
+      return;
+    }
+
+    // Показываем экран авторизации
     showScreen('auth');
     const errEl = document.getElementById('auth-error');
+    errEl.classList.add('hidden');
+
+    // Проверяем, не вернулись ли мы с авторизации
     if (window.location.hash.includes('access_token')) {
       const ok = await TwitchAuth.completeLoginIfRedirected();
-      if (ok) { enterSetupScreen(); return; }
+      if (ok) {
+        enterSetupScreen();
+        return;
+      }
       errEl.textContent = 'Не удалось завершить авторизацию. Попробуйте снова.';
       errEl.classList.remove('hidden');
     } else if (window.location.hash.includes('error=')) {
@@ -115,7 +128,7 @@
 
     const user = TwitchAuth.getState();
     document.getElementById('user-avatar').src = user.profileImageUrl || '';
-    document.getElementById('user-name').textContent = user.displayName || user.login;
+    document.getElementById('user-name').textContent = user.displayName || user.login || 'Пользователь';
     document.getElementById('btn-links').href = CONFIG.LINKS_URL;
     document.getElementById('custom-logs-site-link').href = CONFIG.CUSTOM_LOGS_SITE_URL;
 
@@ -149,7 +162,7 @@
     document.getElementById('range-variants').value          = settings.variants;
     document.getElementById('input-min-messages').value      = settings.minMessages;
     document.getElementById('range-min-messages').value      = Math.min(settings.minMessages, 30000);
-    document.getElementById('input-ignored-chatters').value  = settings.ignoredChatters;
+    document.getElementById('input-ignored-chatters').value  = settings.ignoredChatters || '';
     document.getElementById('input-allowed-phrases').value   = settings.allowedPhrases || '';
 
     document.querySelectorAll('.author-toggle-btn').forEach(b =>
@@ -174,13 +187,19 @@
 
   function initLazyPool() {
     const { startDate, endDate } = getEffectiveDateRange();
-    LazyPool.init(AppState.channel, startDate, endDate);
-    updateScanStatus();
+    if (typeof LazyPool !== 'undefined' && LazyPool.init) {
+      LazyPool.init(AppState.channel, startDate, endDate);
+      updateScanStatus();
+    } else {
+      console.warn('[ChatterGuesser] LazyPool не загружен');
+    }
   }
 
   function updateScanStatus() {
+    if (typeof LazyPool === 'undefined' || !LazyPool.stats) return;
     const s = LazyPool.stats();
     const loadingStatusEl = document.getElementById('loading-status');
+    if (!loadingStatusEl) return;
     if (s.daysLoaded === 0) {
       loadingStatusEl.textContent = `Логи не спаршены. Нажмите "Парсить всё" или выберите диапазон, либо начните игру — логи подгрузятся автоматически.`;
     } else {
@@ -193,6 +212,7 @@
 
   function initChannelPickerUI() {
     const listEl = document.getElementById('channel-preset-list');
+    if (!listEl) return;
     listEl.innerHTML = '';
     CONFIG.CHANNEL_PRESETS.forEach(preset => {
       const btn = document.createElement('button');
@@ -210,7 +230,9 @@
         });
       }
     });
-    document.getElementById('logs-channel-label').textContent = AppState.channel;
+    // Обновляем лейбл канала
+    const labelEl = document.getElementById('channel-picker-label');
+    if (labelEl) labelEl.textContent = AppState.channel.toUpperCase();
     updateParseAllTooltip();
     initDateRangeUI();
   }
@@ -218,10 +240,10 @@
   async function loadChannelAvatar(login) {
     const avatarEl = document.getElementById('channel-picker-avatar');
     const labelEl  = document.getElementById('channel-picker-label');
-    labelEl.textContent = login.toUpperCase();
+    if (labelEl) labelEl.textContent = login.toUpperCase();
     if (!TwitchAuth.isAuthenticated()) return;
     const info = await TwitchAuth.fetchChannelInfo(login);
-    if (info) { avatarEl.src = info.profileImageUrl; AppState.channelAvatarUrl = info.profileImageUrl; }
+    if (info && avatarEl) { avatarEl.src = info.profileImageUrl; AppState.channelAvatarUrl = info.profileImageUrl; }
   }
 
   async function selectChannel(login, startDate) {
@@ -230,8 +252,8 @@
     AppState.scanStartDate    = null;
     AppState.scanEndDate      = null;
 
-    document.getElementById('logs-channel-label').textContent = login;
-    document.getElementById('channel-picker-label').textContent = login.toUpperCase();
+    const labelEl = document.getElementById('channel-picker-label');
+    if (labelEl) labelEl.textContent = login.toUpperCase();
     loadChannelAvatar(login);
     initDateRangeUI();
     updateParseAllTooltip();
@@ -240,8 +262,10 @@
     load7tvEmotes(login);
 
     const btnStart = document.getElementById('btn-start-game');
-    btnStart.disabled = false;
-    btnStart.textContent = 'Начать игру';
+    if (btnStart) {
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
+    }
   }
 
   document.getElementById('btn-add-custom-channel').addEventListener('click', () => {
@@ -273,17 +297,23 @@
   function initDateRangeUI() {
     const start = AppState.channelStartDate;
     const end   = todayUTC();
-    document.getElementById('scan-start-day').value   = start.day;
-    document.getElementById('scan-start-month').value = start.month;
-    document.getElementById('scan-start-year').value  = start.year;
-    document.getElementById('scan-end-day').value     = end.day;
-    document.getElementById('scan-end-month').value   = end.month;
-    document.getElementById('scan-end-year').value    = end.year;
+    const startDay = document.getElementById('scan-start-day');
+    const startMonth = document.getElementById('scan-start-month');
+    const startYear = document.getElementById('scan-start-year');
+    const endDay = document.getElementById('scan-end-day');
+    const endMonth = document.getElementById('scan-end-month');
+    const endYear = document.getElementById('scan-end-year');
+    if (startDay) startDay.value = start.day;
+    if (startMonth) startMonth.value = start.month;
+    if (startYear) startYear.value = start.year;
+    if (endDay) endDay.value = end.day;
+    if (endMonth) endMonth.value = end.month;
+    if (endYear) endYear.value = end.year;
   }
 
   function updateParseAllTooltip() {
-    document.getElementById('parse-all-tooltip-date').textContent =
-      dateToStr(AppState.channelStartDate);
+    const el = document.getElementById('parse-all-tooltip-date');
+    if (el) el.textContent = dateToStr(AppState.channelStartDate);
   }
 
   function readDateFromInputs(prefix) {
@@ -315,11 +345,12 @@
   // Переключатель режима парсинга
   function applyParseModePanel(mode) {
     ['lazy','full','range'].forEach(m => {
-      document.getElementById(`parse-panel-${m}`).classList.toggle('hidden', m !== mode);
+      const el = document.getElementById(`parse-panel-${m}`);
+      if (el) el.classList.toggle('hidden', m !== mode);
     });
     // В режиме lazy кнопка сразу активна; в full/range — только после парсинга
     const btnStart = document.getElementById('btn-start-game');
-    if (mode === 'lazy') {
+    if (mode === 'lazy' && btnStart) {
       btnStart.disabled = false;
       btnStart.textContent = 'Начать игру';
     }
@@ -343,9 +374,20 @@
   // Запуск полного сканирования (через кнопки, не автоматически)
   function triggerFullScan() {
     const btnStart = document.getElementById('btn-start-game');
-    btnStart.disabled = true;
-    btnStart.textContent = 'Парсинг...';
+    if (btnStart) {
+      btnStart.disabled = true;
+      btnStart.textContent = 'Парсинг...';
+    }
     document.getElementById('setup-error').classList.add('hidden');
+
+    if (typeof LazyPool === 'undefined' || !LazyPool.loadAll) {
+      showSetupError('Модуль LazyPool не загружен');
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = 'Начать игру';
+      }
+      return;
+    }
 
     LazyPool.loadAll(({ loaded, total, msgCount, chattersCount }) => {
       document.getElementById('loading-status').textContent =
@@ -354,19 +396,27 @@
       const uniq = new Set(msgs.map(m => m.user)).size;
       document.getElementById('loading-status').textContent =
         `Готово: ${msgs.length.toLocaleString()} сообщений · ${uniq.toLocaleString()} чаттеров`;
-      btnStart.disabled = false;
-      btnStart.textContent = 'Начать игру';
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = 'Начать игру';
+      }
     }).catch(e => {
       console.error('[ChatterGuesser] Ошибка парсинга:', e);
       showSetupError(`Не удалось загрузить логи: ${e.message}`);
-      btnStart.disabled = false;
-      btnStart.textContent = 'Начать игру';
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = 'Начать игру';
+      }
     });
   }
 
   // ===== 7TV =====
 
   async function load7tvEmotes(channelLogin) {
+    if (typeof SevenTV === 'undefined') {
+      console.warn('[ChatterGuesser] SevenTV не загружен');
+      return;
+    }
     channelEmotes = await SevenTV.fetchEmotes(channelLogin);
     const count = channelEmotes.size;
     const label = document.getElementById('emote-filter-label');
@@ -393,17 +443,21 @@
     const vw = document.getElementById('manual-vips-wrap');
     const mi = document.getElementById('manual-mods-input');
     const vi = document.getElementById('manual-vips-input');
-    if (!modsOk && needMods) {
-      mw.classList.remove('hidden'); if (!mi.value) mi.value = CONFIG.DEFAULT_MODS;
-    } else { mw.classList.add('hidden'); }
-    if (!vipsOk && needVips) {
-      vw.classList.remove('hidden'); if (!vi.value) vi.value = CONFIG.DEFAULT_VIPS;
-    } else { vw.classList.add('hidden'); }
+    if (mw) {
+      if (!modsOk && needMods) {
+        mw.classList.remove('hidden'); if (mi && !mi.value) mi.value = CONFIG.DEFAULT_MODS;
+      } else { mw.classList.add('hidden'); }
+    }
+    if (vw) {
+      if (!vipsOk && needVips) {
+        vw.classList.remove('hidden'); if (vi && !vi.value) vi.value = CONFIG.DEFAULT_VIPS;
+      } else { vw.classList.add('hidden'); }
+    }
   }
 
   function readManualModsVips() {
-    if (!modsOk) { const r = document.getElementById('manual-mods-input').value; if (r.trim()) mods = MessagePool.parseChatterList(r); }
-    if (!vipsOk) { const r = document.getElementById('manual-vips-input').value; if (r.trim()) vips = MessagePool.parseChatterList(r); }
+    if (!modsOk) { const el = document.getElementById('manual-mods-input'); if (el && el.value.trim()) mods = MessagePool.parseChatterList(el.value); }
+    if (!vipsOk) { const el = document.getElementById('manual-vips-input'); if (el && el.value.trim()) vips = MessagePool.parseChatterList(el.value); }
   }
 
   // ===== Привязка фильтров UI =====
@@ -411,6 +465,7 @@
   const setupErrorEl = document.getElementById('setup-error');
 
   function showSetupError(msg) {
+    if (!setupErrorEl) return;
     setupErrorEl.textContent = msg;
     setupErrorEl.classList.remove('hidden');
     setupErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -419,6 +474,7 @@
   function bindRangeAndNumber(rangeId, numberId, onChange) {
     const range  = document.getElementById(rangeId);
     const number = document.getElementById(numberId);
+    if (!range || !number) return;
     range.addEventListener('input', () => { number.value = range.value; onChange(Number(range.value)); });
     number.addEventListener('input', () => {
       let val = Number(number.value); if (isNaN(val)) return;
@@ -487,7 +543,7 @@
   // ===== Запуск игры =====
 
   document.getElementById('btn-start-game').addEventListener('click', async () => {
-    setupErrorEl.classList.add('hidden');
+    if (setupErrorEl) setupErrorEl.classList.add('hidden');
     if (settings.mode === 'live') { showScreen('liveSetup'); return; }
     await launchGame();
   });
@@ -499,25 +555,31 @@
     const statusEl = document.getElementById('loading-status');
 
     function progressCb({ loaded, total, msgCount, chattersCount }) {
-      statusEl.textContent =
-        `Подгружаем логи: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
+      if (statusEl) {
+        statusEl.textContent =
+          `Подгружаем логи: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
+      }
     }
 
     // В режиме lazy — подгружаем пока не наберём минимальный порог
-    if (settings.parseMode === 'lazy') {
+    if (settings.parseMode === 'lazy' && typeof LazyPool !== 'undefined') {
       const raw = LazyPool.getRaw();
       const rawChatters = new Set(raw.map(m => m.user)).size;
       const needBootstrap = raw.length < 10000 || rawChatters < 100;
 
       if (needBootstrap && LazyPool.remainingDays() > 0) {
-        btnStart.disabled = true;
-        btnStart.textContent = 'Загружаем данные...';
+        if (btnStart) {
+          btnStart.disabled = true;
+          btnStart.textContent = 'Загружаем данные...';
+        }
         await LazyPool.loadUntil(
           (msgs, chatters) => msgs.length >= 10000 && chatters >= 100,
           progressCb
         );
-        btnStart.disabled = false;
-        btnStart.textContent = 'Начать игру';
+        if (btnStart) {
+          btnStart.disabled = false;
+          btnStart.textContent = 'Начать игру';
+        }
       }
     }
     // В режимах full/range — данные уже загружены через кнопки, используем как есть
@@ -525,27 +587,24 @@
     readManualModsVips();
 
     // В режиме lazy автоматически адаптируем minMessages под реальный объём данных.
-    // Берём 95-й перцентиль числа сообщений авторов — это даёт разумный порог
-    // для того, что реально есть в данных, вместо фиксированного дефолта 5000.
     let effectiveMinMessages = settings.minMessages;
-    if (settings.parseMode === 'lazy') {
+    if (settings.parseMode === 'lazy' && typeof LazyPool !== 'undefined') {
       const raw = LazyPool.getRaw();
       const counts = MessagePool.countMessagesByUser(raw);
       const sortedCounts = [...counts.values()].sort((a, b) => b - a);
       if (sortedCounts.length > 0) {
-        // Берём значение на уровне топ-10% авторов как адаптивный порог,
-        // но не выше заданного настройкой и не ниже 1
         const p90idx = Math.floor(sortedCounts.length * 0.10);
         const adaptiveMax = sortedCounts[p90idx] || sortedCounts[sortedCounts.length - 1];
         effectiveMinMessages = Math.min(settings.minMessages, adaptiveMax);
-        if (effectiveMinMessages < settings.minMessages) {
+        if (effectiveMinMessages < settings.minMessages && statusEl) {
           statusEl.textContent =
             `Адаптирован порог "мин. сообщений": ${effectiveMinMessages} (из-за объёма данных)`;
         }
       }
     }
 
-    const { pool, uniqueAuthorCount } = MessagePool.filterPool(LazyPool.getRaw(), {
+    const rawPool = (typeof LazyPool !== 'undefined') ? LazyPool.getRaw() : [];
+    const { pool, uniqueAuthorCount } = MessagePool.filterPool(rawPool, {
       minLength:          settings.minLength,
       maxLength:          settings.maxLength,
       authorFilter:       settings.authorFilter,
@@ -562,11 +621,15 @@
 
   async function launchGame() {
     const btnStart = document.getElementById('btn-start-game');
-    btnStart.disabled = true; btnStart.textContent = 'Формирование...';
+    if (btnStart) {
+      btnStart.disabled = true;
+      btnStart.textContent = 'Формирование...';
+    }
 
     try {
       // В режимах full/range требуем предварительного парсинга
-      if (settings.parseMode !== 'lazy' && LazyPool.getRaw().length === 0) {
+      const rawPool = (typeof LazyPool !== 'undefined') ? LazyPool.getRaw() : [];
+      if (settings.parseMode !== 'lazy' && rawPool.length === 0) {
         throw new Error(
           settings.parseMode === 'full'
             ? 'Сначала нажмите «ПАРСИТЬ ВСЁ», чтобы загрузить логи.'
@@ -575,10 +638,10 @@
       }
 
       const { pool, uniqueAuthorCount, effectiveMinMessages } = await buildPoolForGame();
-      const rawTotal = LazyPool.getRaw().length;
+      const rawTotal = (typeof LazyPool !== 'undefined') ? LazyPool.getRaw().length : 0;
 
       if (pool.length < settings.variants) {
-        const { pool: poolNoMin } = MessagePool.filterPool(LazyPool.getRaw(), {
+        const { pool: poolNoMin } = MessagePool.filterPool(rawPool, {
           minLength: settings.minLength, maxLength: settings.maxLength,
           authorFilter: settings.authorFilter, minMessages: 0,
           mods, vips, ignoredChattersStr: settings.ignoredChatters,
@@ -611,15 +674,18 @@
       console.error('[ChatterGuesser]', e);
       showSetupError(e.message);
     } finally {
-      btnStart.disabled = false; btnStart.textContent = 'Начать игру';
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = 'Начать игру';
+      }
     }
   }
 
   // Фоновая подгрузка 3 случайных дней после каждого раунда
   function scheduleBackgroundLoad() {
+    if (typeof LazyPool === 'undefined') return;
     if (LazyPool.remainingDays() === 0) return;
     LazyPool.loadRandomDays(3, ({ loaded, total, msgCount, chattersCount }) => {
-      // Обновляем статус-строку на экране настроек (если он видим)
       const el = document.getElementById('loading-status');
       if (el) el.textContent =
         `Фон: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
@@ -655,9 +721,11 @@
       secondsLeft--;
       document.getElementById('live-timer-value').textContent = secondsLeft;
       const circle = document.querySelector('.live-timer-circle');
-      if (secondsLeft <= 10) {
-        circle.style.borderColor = 'var(--red)';
-        circle.style.color = 'var(--red)';
+      if (circle) {
+        if (secondsLeft <= 10) {
+          circle.style.borderColor = 'var(--red)';
+          circle.style.color = 'var(--red)';
+        }
       }
       if (secondsLeft <= 0) {
         clearInterval(liveTimerInterval);
@@ -670,7 +738,8 @@
   function startLiveGame() {
     if (liveMessages.length < settings.variants) {
       showScreen('liveSetup');
-      document.querySelector('.live-setup-desc').textContent =
+      const desc = document.querySelector('.live-setup-desc');
+      if (desc) desc.textContent =
         `Собрано только ${liveMessages.length} сообщений — недостаточно. Попробуйте снова.`;
       return;
     }
@@ -693,11 +762,13 @@
   function setupGameUI() {
     const isChat = settings.mode === 'chat';
     const sidebar = document.getElementById('chat-sidebar');
-    sidebar.classList.toggle('hidden', !isChat);
+    if (sidebar) sidebar.classList.toggle('hidden', !isChat);
     document.getElementById('leaderboard-list').innerHTML = '';
     const statusEl = document.getElementById('connection-status');
-    statusEl.textContent = 'подключение...';
-    statusEl.className = 'connection-status disconnected';
+    if (statusEl) {
+      statusEl.textContent = 'подключение...';
+      statusEl.className = 'connection-status disconnected';
+    }
     if (isChat) setupChatVoting();
     setupExitButton();
   }
@@ -714,6 +785,7 @@
     document.getElementById('target-username').textContent = round.targetUser;
 
     const listEl = document.getElementById('options-list');
+    if (!listEl) return;
     listEl.innerHTML = '';
     round.options.forEach((opt, idx) => {
       const btn = document.createElement('button');
@@ -763,8 +835,10 @@
     const score = GameEngine.getStreamerScore();
     document.getElementById('score-progress-label').textContent = `✓ ${score.correct} / ${score.total}`;
     const btnNext = document.getElementById('btn-next-round');
-    btnNext.textContent = GameEngine.isGameOver() ? 'Посмотреть результаты →' : 'Следующий раунд →';
-    btnNext.classList.remove('hidden');
+    if (btnNext) {
+      btnNext.textContent = GameEngine.isGameOver() ? 'Посмотреть результаты →' : 'Следующий раунд →';
+      btnNext.classList.remove('hidden');
+    }
   }
 
   document.getElementById('btn-next-round').addEventListener('click', () => {
@@ -779,16 +853,24 @@
   function resetExitConfirm() {
     const btnExit  = document.getElementById('btn-exit-game');
     const confirmEl = document.getElementById('exit-confirm');
-    btnExit.classList.remove('shrunk', 'hidden');
-    confirmEl.classList.add('hidden');
+    if (btnExit) {
+      btnExit.classList.remove('shrunk', 'hidden');
+    }
+    if (confirmEl) {
+      confirmEl.classList.add('hidden');
+    }
   }
 
   document.getElementById('btn-exit-game').addEventListener('click', () => {
     const btnExit  = document.getElementById('btn-exit-game');
     const confirmEl = document.getElementById('exit-confirm');
-    btnExit.classList.add('shrunk');
-    setTimeout(() => btnExit.classList.add('hidden'), 150);
-    confirmEl.classList.remove('hidden');
+    if (btnExit) {
+      btnExit.classList.add('shrunk');
+      setTimeout(() => btnExit.classList.add('hidden'), 150);
+    }
+    if (confirmEl) {
+      confirmEl.classList.remove('hidden');
+    }
   });
   document.getElementById('btn-exit-confirm').addEventListener('click', () => {
     cleanupChatSession();
@@ -812,14 +894,17 @@
     });
     chatStatusInterval = setInterval(() => {
       const ok = ChatListener.isConnected();
-      statusEl.textContent = ok ? 'подключено к чату' : 'переподключение...';
-      statusEl.className = `connection-status ${ok ? 'connected' : 'disconnected'}`;
+      if (statusEl) {
+        statusEl.textContent = ok ? 'подключено к чату' : 'переподключение...';
+        statusEl.className = `connection-status ${ok ? 'connected' : 'disconnected'}`;
+      }
     }, 1000);
     window.addEventListener('beforeunload', () => cleanupChatSession(), { once: true });
   }
 
   function renderLeaderboard() {
     const listEl = document.getElementById('leaderboard-list');
+    if (!listEl) return;
     const top    = GameEngine.getChatLeaderboard(10);
     listEl.innerHTML = '';
     if (!top.length) {
