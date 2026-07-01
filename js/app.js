@@ -40,6 +40,7 @@
     ignoredChatters: CONFIG.DEFAULTS.ignoredChatters,
     allowedPhrases:  '',
     emoteFilter:     'off',
+    parseMode:       'lazy', // 'lazy' | 'full' | 'range'
     mode:            'solo',
   };
 
@@ -124,6 +125,7 @@
 
     // Инициализируем LazyPool с дефолтным каналом (БЕЗ автоматического старта парсинга)
     initLazyPool();
+    applyParseModePanel(settings.parseMode);
 
     // Аватарка канала + моды/VIP (это быстрые API-запросы, не парсинг логов)
     loadChannelAvatar(AppState.channel);
@@ -156,6 +158,9 @@
       c.classList.toggle('active', c.dataset.mode === settings.mode));
     document.querySelectorAll('.emote-filter-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.emoteFilter === settings.emoteFilter));
+    document.querySelectorAll('.parse-mode-tab').forEach(b =>
+      b.classList.toggle('active', b.dataset.parseMode === settings.parseMode));
+    applyParseModePanel(settings.parseMode);
   }
 
   // ===== LazyPool инициализация =====
@@ -305,6 +310,34 @@
     initLazyPool();
     initDateRangeUI();
     triggerFullScan();
+  });
+
+  // Переключатель режима парсинга
+  function applyParseModePanel(mode) {
+    ['lazy','full','range'].forEach(m => {
+      document.getElementById(`parse-panel-${m}`).classList.toggle('hidden', m !== mode);
+    });
+    // В режиме lazy кнопка сразу активна; в full/range — только после парсинга
+    const btnStart = document.getElementById('btn-start-game');
+    if (mode === 'lazy') {
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
+    }
+  }
+
+  document.querySelectorAll('.parse-mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.parse-mode-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      settings.parseMode = btn.dataset.parseMode;
+      saveSettingsToSession();
+      applyParseModePanel(settings.parseMode);
+      // При переключении в lazy — сразу разблокировать кнопку
+      if (settings.parseMode === 'lazy') {
+        document.getElementById('btn-start-game').disabled = false;
+        document.getElementById('btn-start-game').textContent = 'Начать игру';
+      }
+    });
   });
 
   // Запуск полного сканирования (через кнопки, не автоматически)
@@ -470,30 +503,53 @@
         `Подгружаем логи: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
     }
 
-    const raw = LazyPool.getRaw();
-    const rawChatters = new Set(raw.map(m => m.user)).size;
+    // В режиме lazy — подгружаем пока не наберём минимальный порог
+    if (settings.parseMode === 'lazy') {
+      const raw = LazyPool.getRaw();
+      const rawChatters = new Set(raw.map(m => m.user)).size;
+      const needBootstrap = raw.length < 10000 || rawChatters < 100;
 
-    // Первый раунд: нужно минимум 10 000 сообщений и 100 чаттеров
-    const needBootstrap = raw.length < 10000 || rawChatters < 100;
-
-    if (needBootstrap && LazyPool.remainingDays() > 0) {
-      btnStart.disabled = true;
-      btnStart.textContent = 'Загружаем данные...';
-      await LazyPool.loadUntil(
-        (msgs, chatters) => msgs.length >= 10000 && chatters >= 100,
-        progressCb
-      );
-      btnStart.disabled = false;
-      btnStart.textContent = 'Начать игру';
+      if (needBootstrap && LazyPool.remainingDays() > 0) {
+        btnStart.disabled = true;
+        btnStart.textContent = 'Загружаем данные...';
+        await LazyPool.loadUntil(
+          (msgs, chatters) => msgs.length >= 10000 && chatters >= 100,
+          progressCb
+        );
+        btnStart.disabled = false;
+        btnStart.textContent = 'Начать игру';
+      }
     }
+    // В режимах full/range — данные уже загружены через кнопки, используем как есть
 
     readManualModsVips();
 
+    // В режиме lazy автоматически адаптируем minMessages под реальный объём данных.
+    // Берём 95-й перцентиль числа сообщений авторов — это даёт разумный порог
+    // для того, что реально есть в данных, вместо фиксированного дефолта 5000.
+    let effectiveMinMessages = settings.minMessages;
+    if (settings.parseMode === 'lazy') {
+      const raw = LazyPool.getRaw();
+      const counts = MessagePool.countMessagesByUser(raw);
+      const sortedCounts = [...counts.values()].sort((a, b) => b - a);
+      if (sortedCounts.length > 0) {
+        // Берём значение на уровне топ-10% авторов как адаптивный порог,
+        // но не выше заданного настройкой и не ниже 1
+        const p90idx = Math.floor(sortedCounts.length * 0.10);
+        const adaptiveMax = sortedCounts[p90idx] || sortedCounts[sortedCounts.length - 1];
+        effectiveMinMessages = Math.min(settings.minMessages, adaptiveMax);
+        if (effectiveMinMessages < settings.minMessages) {
+          statusEl.textContent =
+            `Адаптирован порог "мин. сообщений": ${effectiveMinMessages} (из-за объёма данных)`;
+        }
+      }
+    }
+
     const { pool, uniqueAuthorCount } = MessagePool.filterPool(LazyPool.getRaw(), {
-      minLength:         settings.minLength,
-      maxLength:         settings.maxLength,
-      authorFilter:      settings.authorFilter,
-      minMessages:       settings.minMessages,
+      minLength:          settings.minLength,
+      maxLength:          settings.maxLength,
+      authorFilter:       settings.authorFilter,
+      minMessages:        effectiveMinMessages,
       mods, vips,
       ignoredChattersStr: settings.ignoredChatters,
       allowedPhrasesStr:  settings.allowedPhrases,
@@ -501,7 +557,7 @@
       emotes:             channelEmotes,
     });
 
-    return { pool, uniqueAuthorCount };
+    return { pool, uniqueAuthorCount, effectiveMinMessages };
   }
 
   async function launchGame() {
@@ -509,11 +565,19 @@
     btnStart.disabled = true; btnStart.textContent = 'Формирование...';
 
     try {
-      const { pool, uniqueAuthorCount } = await buildPoolForGame();
+      // В режимах full/range требуем предварительного парсинга
+      if (settings.parseMode !== 'lazy' && LazyPool.getRaw().length === 0) {
+        throw new Error(
+          settings.parseMode === 'full'
+            ? 'Сначала нажмите «ПАРСИТЬ ВСЁ», чтобы загрузить логи.'
+            : 'Сначала укажите диапазон дат и нажмите «Спарсить».'
+        );
+      }
 
+      const { pool, uniqueAuthorCount, effectiveMinMessages } = await buildPoolForGame();
       const rawTotal = LazyPool.getRaw().length;
+
       if (pool.length < settings.variants) {
-        // Пробуем понять причину: если без фильтра minMessages пул не пуст — значит порог завышен
         const { pool: poolNoMin } = MessagePool.filterPool(LazyPool.getRaw(), {
           minLength: settings.minLength, maxLength: settings.maxLength,
           authorFilter: settings.authorFilter, minMessages: 0,
@@ -522,15 +586,15 @@
           emoteFilter: settings.emoteFilter, emotes: channelEmotes,
         });
         const hint = poolNoMin.length > 0
-          ? ` Возможно, порог "мин. сообщений автора" (${settings.minMessages.toLocaleString()}) слишком высок для спаршенного диапазона — попробуйте снизить его или спарсить больше логов.`
-          : ` Попробуйте ослабить фильтры длины/автора или спарсить больше логов.`;
+          ? ` Порог «мин. сообщений автора» (адаптирован до ${effectiveMinMessages.toLocaleString()}) всё равно высок. Снизьте его в настройках или ${settings.parseMode === 'lazy' ? 'продолжайте игру — данных станет больше' : 'спарсите больше логов'}.`
+          : ` Ослабьте фильтры длины или фильтр автора.`;
         throw new Error(
           `Недостаточно сообщений под фильтры: найдено ${pool.length} из ${rawTotal.toLocaleString()} спаршенных.${hint}`
         );
       }
       if (uniqueAuthorCount < settings.variants) {
         throw new Error(
-          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants} для ${settings.variants} вариантов. Ослабьте фильтры или спарсите больше логов.`
+          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants}. Ослабьте фильтры.`
         );
       }
 
