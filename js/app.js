@@ -1,43 +1,46 @@
 // ChatterGuesser — главный модуль приложения
 (async function () {
 
-  // ===== Глобальное состояние канала =====
+  // ===== Глобальное состояние =====
   const AppState = {
-    channel: CONFIG.LOGS_CHANNEL_DEFAULT,
+    channel:          CONFIG.CHANNEL_PRESETS[0].login,
     channelStartDate: CONFIG.CHANNEL_PRESETS[0].startDate,
     channelAvatarUrl: '',
-    // Диапазон парсинга (по умолчанию = от начала канала до сегодня)
-    scanStartDate: null,
-    scanEndDate: null,
+    scanStartDate:    null,
+    scanEndDate:      null,
   };
 
-  // ===== Элементы DOM =====
+  // 7TV эмоуты текущего канала (подгружаются при смене канала)
+  let channelEmotes = new Set();
+
+  // ===== Экраны =====
   const screens = {
-    auth: document.getElementById('auth-screen'),
-    setup: document.getElementById('setup-screen'),
+    auth:      document.getElementById('auth-screen'),
+    setup:     document.getElementById('setup-screen'),
     liveSetup: document.getElementById('live-setup-screen'),
     liveTimer: document.getElementById('live-timer-screen'),
-    game: document.getElementById('game-screen'),
-    results: document.getElementById('results-screen'),
+    game:      document.getElementById('game-screen'),
+    results:   document.getElementById('results-screen'),
   };
 
   function showScreen(name) {
-    Object.values(screens).forEach((el) => el.classList.add('hidden'));
-    const modal = document.getElementById('custom-channel-modal');
-    modal.classList.add('hidden');
+    Object.values(screens).forEach(el => el.classList.add('hidden'));
+    document.getElementById('custom-channel-modal').classList.add('hidden');
     screens[name].classList.remove('hidden');
   }
 
-  // ===== Состояние настроек =====
+  // ===== Настройки =====
   let settings = {
-    rounds: CONFIG.DEFAULTS.rounds,
-    minLength: CONFIG.DEFAULTS.minLength,
-    maxLength: CONFIG.DEFAULTS.maxLength,
-    variants: CONFIG.DEFAULTS.variants,
-    minMessages: CONFIG.DEFAULTS.minMessages,
-    authorFilter: CONFIG.DEFAULTS.authorFilter,
+    rounds:          CONFIG.DEFAULTS.rounds,
+    minLength:       CONFIG.DEFAULTS.minLength,
+    maxLength:       CONFIG.DEFAULTS.maxLength,
+    variants:        CONFIG.DEFAULTS.variants,
+    minMessages:     CONFIG.DEFAULTS.minMessages,
+    authorFilter:    CONFIG.DEFAULTS.authorFilter,
     ignoredChatters: CONFIG.DEFAULTS.ignoredChatters,
-    mode: 'solo',
+    allowedPhrases:  '',
+    emoteFilter:     'off',
+    mode:            'solo',
   };
 
   let mods = new Set();
@@ -56,24 +59,17 @@
     sessionStorage.setItem(CONFIG.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }
 
-  // ===== Кэш сообщений =====
-  let rawMessagesCache = null;
-  let logsScanPromise = null;
-
   // ===== Утилиты =====
   function pad2(n) { return String(n).padStart(2, '0'); }
-
   function escapeHtml(str) {
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
   }
-
   function todayUTC() {
     const now = new Date();
     return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
   }
-
   function dateToStr(d) {
     return `${pad2(d.day)}.${pad2(d.month)}.${d.year}`;
   }
@@ -82,21 +78,18 @@
   document.getElementById('btn-auth').addEventListener('click', () => TwitchAuth.startLogin());
 
   async function initAuthFlow() {
-    if (TwitchAuth.loadFromSession()) {
-      enterSetupScreen();
-      return;
-    }
+    if (TwitchAuth.loadFromSession()) { enterSetupScreen(); return; }
     showScreen('auth');
-    const authErrorEl = document.getElementById('auth-error');
+    const errEl = document.getElementById('auth-error');
     if (window.location.hash.includes('access_token')) {
       const ok = await TwitchAuth.completeLoginIfRedirected();
       if (ok) { enterSetupScreen(); return; }
-      authErrorEl.textContent = 'Не удалось завершить авторизацию через Twitch. Попробуйте снова.';
-      authErrorEl.classList.remove('hidden');
+      errEl.textContent = 'Не удалось завершить авторизацию. Попробуйте снова.';
+      errEl.classList.remove('hidden');
     } else if (window.location.hash.includes('error=')) {
-      const params = new URLSearchParams(window.location.hash.substring(1));
-      authErrorEl.textContent = `Авторизация отменена: ${params.get('error_description') || params.get('error')}`;
-      authErrorEl.classList.remove('hidden');
+      const p = new URLSearchParams(window.location.hash.substring(1));
+      errEl.textContent = `Авторизация отменена: ${p.get('error_description') || p.get('error')}`;
+      errEl.classList.remove('hidden');
       history.replaceState(null, '', window.location.pathname);
     }
   }
@@ -110,7 +103,7 @@
   // ===== Экран настроек =====
 
   function initBadgeImages() {
-    document.querySelectorAll('img[data-badge]').forEach((img) => {
+    document.querySelectorAll('img[data-badge]').forEach(img => {
       img.src = CONFIG.BADGES[img.getAttribute('data-badge')];
     });
   }
@@ -122,47 +115,73 @@
     const user = TwitchAuth.getState();
     document.getElementById('user-avatar').src = user.profileImageUrl || '';
     document.getElementById('user-name').textContent = user.displayName || user.login;
-
-    // Ссылка "Ссылки"
     document.getElementById('btn-links').href = CONFIG.LINKS_URL;
-
-    // Поле "Добавить свой канал" — ссылка на сайт логов
     document.getElementById('custom-logs-site-link').href = CONFIG.CUSTOM_LOGS_SITE_URL;
 
     applySettingsToUI();
     initChannelPickerUI();
-    initDateRangeUI();
     showScreen('setup');
 
-    // Подтягиваем аватарку текущего канала
+    // Инициализируем LazyPool с дефолтным каналом (БЕЗ автоматического старта парсинга)
+    initLazyPool();
+
+    // Аватарка канала + моды/VIP (это быстрые API-запросы, не парсинг логов)
     loadChannelAvatar(AppState.channel);
+    loadModsVips();
+    load7tvEmotes(AppState.channel);
 
-    // Моды/VIP текущего канала
-    await loadModsVips();
-
-    // Запуск полного парсинга
-    startFullLogsScan();
+    // Кнопка "Начать игру" сразу доступна — парсинг запустится по требованию
+    const btnStart = document.getElementById('btn-start-game');
+    btnStart.disabled = false;
+    btnStart.textContent = 'Начать игру';
   }
 
   function applySettingsToUI() {
-    document.getElementById('input-rounds').value = settings.rounds;
-    document.getElementById('range-rounds').value = settings.rounds;
-    document.getElementById('range-min-length').value = settings.minLength;
-    document.getElementById('range-max-length').value = settings.maxLength;
-    document.getElementById('label-min-length').textContent = settings.minLength;
-    document.getElementById('label-max-length').textContent = settings.maxLength;
-    document.getElementById('input-variants').value = settings.variants;
-    document.getElementById('range-variants').value = settings.variants;
-    document.getElementById('input-min-messages').value = settings.minMessages;
-    document.getElementById('range-min-messages').value = Math.min(settings.minMessages, 30000);
-    document.getElementById('input-ignored-chatters').value = settings.ignoredChatters;
+    document.getElementById('input-rounds').value            = settings.rounds;
+    document.getElementById('range-rounds').value            = settings.rounds;
+    document.getElementById('range-min-length').value        = settings.minLength;
+    document.getElementById('range-max-length').value        = settings.maxLength;
+    document.getElementById('label-min-length').textContent  = settings.minLength;
+    document.getElementById('label-max-length').textContent  = settings.maxLength;
+    document.getElementById('input-variants').value          = settings.variants;
+    document.getElementById('range-variants').value          = settings.variants;
+    document.getElementById('input-min-messages').value      = settings.minMessages;
+    document.getElementById('range-min-messages').value      = Math.min(settings.minMessages, 30000);
+    document.getElementById('input-ignored-chatters').value  = settings.ignoredChatters;
+    document.getElementById('input-allowed-phrases').value   = settings.allowedPhrases || '';
 
-    document.querySelectorAll('.author-toggle-btn').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.author === settings.authorFilter);
-    });
-    document.querySelectorAll('.mode-card').forEach((c) => {
-      c.classList.toggle('active', c.dataset.mode === settings.mode);
-    });
+    document.querySelectorAll('.author-toggle-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.author === settings.authorFilter));
+    document.querySelectorAll('.mode-card').forEach(c =>
+      c.classList.toggle('active', c.dataset.mode === settings.mode));
+    document.querySelectorAll('.emote-filter-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.emoteFilter === settings.emoteFilter));
+  }
+
+  // ===== LazyPool инициализация =====
+
+  function getEffectiveDateRange() {
+    return {
+      startDate: AppState.scanStartDate || AppState.channelStartDate,
+      endDate:   AppState.scanEndDate   || todayUTC(),
+    };
+  }
+
+  function initLazyPool() {
+    const { startDate, endDate } = getEffectiveDateRange();
+    LazyPool.init(AppState.channel, startDate, endDate);
+    updateScanStatus();
+  }
+
+  function updateScanStatus() {
+    const s = LazyPool.stats();
+    const loadingStatusEl = document.getElementById('loading-status');
+    if (s.daysLoaded === 0) {
+      loadingStatusEl.textContent = `Логи не спаршены. Нажмите "Парсить всё" или выберите диапазон, либо начните игру — логи подгрузятся автоматически.`;
+    } else {
+      loadingStatusEl.textContent =
+        `Спаршено: ${s.daysLoaded}/${s.daysTotal} дней · ${s.msgCount.toLocaleString()} сообщений · ${s.chattersCount.toLocaleString()} чаттеров`;
+    }
   }
 
   // ===== Канальный picker =====
@@ -170,216 +189,193 @@
   function initChannelPickerUI() {
     const listEl = document.getElementById('channel-preset-list');
     listEl.innerHTML = '';
-
-    CONFIG.CHANNEL_PRESETS.forEach((preset) => {
+    CONFIG.CHANNEL_PRESETS.forEach(preset => {
       const btn = document.createElement('button');
       btn.className = 'channel-preset-item';
       btn.innerHTML = `
         <img src="https://static-cdn.jtvnw.net/user-default-pictures-uv/cdd517fe-def4-11e9-948e-784f43822e80-profile_image-50x50.png"
-             class="channel-avatar"
-             style="width:22px;height:22px;"
-             data-login="${preset.login}" alt="">
+             class="channel-avatar" style="width:22px;height:22px;" data-login="${preset.login}" alt="">
         <span class="preset-login">${preset.login.toUpperCase()}</span>
         <span class="preset-start">с ${dateToStr(preset.startDate)}</span>`;
       btn.addEventListener('click', () => selectChannel(preset.login, preset.startDate));
       listEl.appendChild(btn);
-
-      // Ленивая подгрузка аватарок в дропдауне
       if (TwitchAuth.isAuthenticated()) {
-        TwitchAuth.fetchChannelInfo(preset.login).then((info) => {
-          if (!info) return;
-          const img = btn.querySelector('img');
-          if (img) img.src = info.profileImageUrl;
+        TwitchAuth.fetchChannelInfo(preset.login).then(info => {
+          if (info) { const img = btn.querySelector('img'); if (img) img.src = info.profileImageUrl; }
         });
       }
     });
+    document.getElementById('logs-channel-label').textContent = AppState.channel;
+    updateParseAllTooltip();
+    initDateRangeUI();
   }
 
   async function loadChannelAvatar(login) {
     const avatarEl = document.getElementById('channel-picker-avatar');
-    const labelEl = document.getElementById('channel-picker-label');
+    const labelEl  = document.getElementById('channel-picker-label');
     labelEl.textContent = login.toUpperCase();
     if (!TwitchAuth.isAuthenticated()) return;
     const info = await TwitchAuth.fetchChannelInfo(login);
-    if (info) {
-      avatarEl.src = info.profileImageUrl;
-      AppState.channelAvatarUrl = info.profileImageUrl;
-    }
+    if (info) { avatarEl.src = info.profileImageUrl; AppState.channelAvatarUrl = info.profileImageUrl; }
   }
 
   async function selectChannel(login, startDate) {
-    if (login === AppState.channel && rawMessagesCache) return;
-    AppState.channel = login;
+    AppState.channel          = login;
     AppState.channelStartDate = startDate;
-    AppState.scanStartDate = null;
-    AppState.scanEndDate = null;
-    rawMessagesCache = null;
+    AppState.scanStartDate    = null;
+    AppState.scanEndDate      = null;
 
     document.getElementById('logs-channel-label').textContent = login;
     document.getElementById('channel-picker-label').textContent = login.toUpperCase();
     loadChannelAvatar(login);
-
-    // Обновляем поля дат парсинга под новый канал
     initDateRangeUI();
-
-    // Обновляем тултип кнопки "Парсить всё"
     updateParseAllTooltip();
+    initLazyPool();       // новый канал = новый LazyPool (старые данные сбрасываются)
+    loadModsVips();
+    load7tvEmotes(login);
 
-    // Перезагружаем моды/VIP и парсим
-    await loadModsVips();
-    startFullLogsScan();
+    const btnStart = document.getElementById('btn-start-game');
+    btnStart.disabled = false;
+    btnStart.textContent = 'Начать игру';
   }
 
-  // Кнопка "+ Добавить свой канал"
   document.getElementById('btn-add-custom-channel').addEventListener('click', () => {
     document.getElementById('custom-channel-modal').classList.remove('hidden');
   });
-
   document.getElementById('btn-close-custom-channel').addEventListener('click', () => {
     document.getElementById('custom-channel-modal').classList.add('hidden');
   });
-
-  document.getElementById('custom-channel-modal').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('custom-channel-modal')) {
+  document.getElementById('custom-channel-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('custom-channel-modal'))
       document.getElementById('custom-channel-modal').classList.add('hidden');
-    }
   });
-
   document.getElementById('btn-confirm-custom-channel').addEventListener('click', async () => {
     const login = document.getElementById('custom-channel-login').value.trim().toLowerCase();
-    const day = parseInt(document.getElementById('custom-channel-day').value, 10);
+    const day   = parseInt(document.getElementById('custom-channel-day').value, 10);
     const month = parseInt(document.getElementById('custom-channel-month').value, 10);
-    const year = parseInt(document.getElementById('custom-channel-year').value, 10);
+    const year  = parseInt(document.getElementById('custom-channel-year').value, 10);
     const errEl = document.getElementById('custom-channel-error');
-
     if (!login || isNaN(day) || isNaN(month) || isNaN(year)) {
-      errEl.textContent = 'Заполните ник и все поля даты.';
-      errEl.classList.remove('hidden');
-      return;
+      errEl.textContent = 'Заполните ник и все поля даты.'; errEl.classList.remove('hidden'); return;
     }
-
     errEl.classList.add('hidden');
     document.getElementById('custom-channel-modal').classList.add('hidden');
     await selectChannel(login, { year, month, day });
   });
 
-  // ===== Выбор диапазона дат парсинга =====
+  // ===== Диапазон дат =====
 
   function initDateRangeUI() {
     const start = AppState.channelStartDate;
-    const end = todayUTC();
-
-    document.getElementById('scan-start-day').value = start.day;
+    const end   = todayUTC();
+    document.getElementById('scan-start-day').value   = start.day;
     document.getElementById('scan-start-month').value = start.month;
-    document.getElementById('scan-start-year').value = start.year;
-    document.getElementById('scan-end-day').value = end.day;
-    document.getElementById('scan-end-month').value = end.month;
-    document.getElementById('scan-end-year').value = end.year;
-
-    updateParseAllTooltip();
+    document.getElementById('scan-start-year').value  = start.year;
+    document.getElementById('scan-end-day').value     = end.day;
+    document.getElementById('scan-end-month').value   = end.month;
+    document.getElementById('scan-end-year').value    = end.year;
   }
 
   function updateParseAllTooltip() {
-    const start = AppState.channelStartDate;
-    document.getElementById('parse-all-tooltip-date').textContent = dateToStr(start);
+    document.getElementById('parse-all-tooltip-date').textContent =
+      dateToStr(AppState.channelStartDate);
   }
 
   function readDateFromInputs(prefix) {
-    const day = parseInt(document.getElementById(`scan-${prefix}-day`).value, 10);
+    const day   = parseInt(document.getElementById(`scan-${prefix}-day`).value,   10);
     const month = parseInt(document.getElementById(`scan-${prefix}-month`).value, 10);
-    const year = parseInt(document.getElementById(`scan-${prefix}-year`).value, 10);
+    const year  = parseInt(document.getElementById(`scan-${prefix}-year`).value,  10);
     if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
     return { day, month, year };
   }
 
   document.getElementById('btn-apply-range').addEventListener('click', () => {
     const start = readDateFromInputs('start');
-    const end = readDateFromInputs('end');
-    if (!start || !end) {
-      showSetupError('Укажите корректный диапазон дат.');
-      return;
-    }
+    const end   = readDateFromInputs('end');
+    if (!start || !end) { showSetupError('Укажите корректный диапазон дат.'); return; }
     AppState.scanStartDate = start;
-    AppState.scanEndDate = end;
-    rawMessagesCache = null;
-    startFullLogsScan();
+    AppState.scanEndDate   = end;
+    initLazyPool();
+    triggerFullScan();
   });
 
   document.getElementById('btn-parse-all').addEventListener('click', () => {
     AppState.scanStartDate = null;
-    AppState.scanEndDate = null;
-    rawMessagesCache = null;
+    AppState.scanEndDate   = null;
+    initLazyPool();
     initDateRangeUI();
-    startFullLogsScan();
+    triggerFullScan();
   });
 
-  // ===== Загрузка модов/VIP (с fallback на ручной ввод) =====
+  // Запуск полного сканирования (через кнопки, не автоматически)
+  function triggerFullScan() {
+    const btnStart = document.getElementById('btn-start-game');
+    btnStart.disabled = true;
+    btnStart.textContent = 'Парсинг...';
+    document.getElementById('setup-error').classList.add('hidden');
+
+    LazyPool.loadAll(({ loaded, total, msgCount, chattersCount }) => {
+      document.getElementById('loading-status').textContent =
+        `Парсинг: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
+    }).then(({ msgs }) => {
+      const uniq = new Set(msgs.map(m => m.user)).size;
+      document.getElementById('loading-status').textContent =
+        `Готово: ${msgs.length.toLocaleString()} сообщений · ${uniq.toLocaleString()} чаттеров`;
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
+    }).catch(e => {
+      console.error('[ChatterGuesser] Ошибка парсинга:', e);
+      showSetupError(`Не удалось загрузить логи: ${e.message}`);
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
+    });
+  }
+
+  // ===== 7TV =====
+
+  async function load7tvEmotes(channelLogin) {
+    channelEmotes = await SevenTV.fetchEmotes(channelLogin);
+    const count = channelEmotes.size;
+    const label = document.getElementById('emote-filter-label');
+    if (label) label.textContent = count > 0 ? `7TV: ${count} эмоутов` : '7TV: эмоуты не найдены';
+  }
+
+  // ===== Моды / VIP =====
 
   async function loadModsVips() {
-    const [modsResult, vipsResult] = await Promise.all([
+    const [mr, vr] = await Promise.all([
       TwitchAuth.fetchModerators(AppState.channel),
       TwitchAuth.fetchVips(AppState.channel),
     ]);
-
-    modsOk = modsResult.ok;
-    vipsOk = vipsResult.ok;
-
-    if (modsResult.ok) {
-      mods = new Set(modsResult.list);
-    } else {
-      mods = MessagePool.parseChatterList(CONFIG.DEFAULT_MODS);
-    }
-
-    if (vipsResult.ok) {
-      vips = new Set(vipsResult.list);
-    } else {
-      vips = MessagePool.parseChatterList(CONFIG.DEFAULT_VIPS);
-    }
-
+    modsOk = mr.ok; vipsOk = vr.ok;
+    mods   = mr.ok ? new Set(mr.list) : MessagePool.parseChatterList(CONFIG.DEFAULT_MODS);
+    vips   = vr.ok ? new Set(vr.list) : MessagePool.parseChatterList(CONFIG.DEFAULT_VIPS);
     updateModVipFallbackUI();
   }
 
   function updateModVipFallbackUI() {
-    const manualModsWrap = document.getElementById('manual-mods-wrap');
-    const manualVipsWrap = document.getElementById('manual-vips-wrap');
-    const manualModsInput = document.getElementById('manual-mods-input');
-    const manualVipsInput = document.getElementById('manual-vips-input');
-
-    const needMods = ['mods', 'vips_mods'].includes(settings.authorFilter);
-    const needVips = ['vips', 'vips_mods'].includes(settings.authorFilter);
-
+    const needMods = ['mods','vips_mods'].includes(settings.authorFilter);
+    const needVips = ['vips','vips_mods'].includes(settings.authorFilter);
+    const mw = document.getElementById('manual-mods-wrap');
+    const vw = document.getElementById('manual-vips-wrap');
+    const mi = document.getElementById('manual-mods-input');
+    const vi = document.getElementById('manual-vips-input');
     if (!modsOk && needMods) {
-      manualModsWrap.classList.remove('hidden');
-      if (!manualModsInput.value) manualModsInput.value = CONFIG.DEFAULT_MODS;
-    } else {
-      manualModsWrap.classList.add('hidden');
-    }
-
+      mw.classList.remove('hidden'); if (!mi.value) mi.value = CONFIG.DEFAULT_MODS;
+    } else { mw.classList.add('hidden'); }
     if (!vipsOk && needVips) {
-      manualVipsWrap.classList.remove('hidden');
-      if (!manualVipsInput.value) manualVipsInput.value = CONFIG.DEFAULT_VIPS;
-    } else {
-      manualVipsWrap.classList.add('hidden');
-    }
+      vw.classList.remove('hidden'); if (!vi.value) vi.value = CONFIG.DEFAULT_VIPS;
+    } else { vw.classList.add('hidden'); }
   }
 
-  // Перечитать ручные поля мод/VIP в Set-ы при нажатии "Начать игру"
   function readManualModsVips() {
-    if (!modsOk) {
-      const raw = document.getElementById('manual-mods-input').value;
-      if (raw.trim()) mods = MessagePool.parseChatterList(raw);
-    }
-    if (!vipsOk) {
-      const raw = document.getElementById('manual-vips-input').value;
-      if (raw.trim()) vips = MessagePool.parseChatterList(raw);
-    }
+    if (!modsOk) { const r = document.getElementById('manual-mods-input').value; if (r.trim()) mods = MessagePool.parseChatterList(r); }
+    if (!vipsOk) { const r = document.getElementById('manual-vips-input').value; if (r.trim()) vips = MessagePool.parseChatterList(r); }
   }
 
-  // ===== Полное сканирование логов =====
+  // ===== Привязка фильтров UI =====
 
   const setupErrorEl = document.getElementById('setup-error');
-  const loadingStatusEl = document.getElementById('loading-status');
-  const btnStart = document.getElementById('btn-start-game');
 
   function showSetupError(msg) {
     setupErrorEl.textContent = msg;
@@ -387,178 +383,181 @@
     setupErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  function startFullLogsScan() {
-    btnStart.disabled = true;
-    btnStart.textContent = 'Парсинг логов...';
-    setupErrorEl.classList.add('hidden');
-
-    const startDate = AppState.scanStartDate || AppState.channelStartDate;
-    const endDate = AppState.scanEndDate || todayUTC();
-
-    logsScanPromise = MessagePool.scanAllMessages(
-      { channel: AppState.channel, startDate, endDate },
-      ({ daysScanned, totalDays, rawCount, chattersCount }) => {
-        loadingStatusEl.textContent =
-          `Парсинг: ${daysScanned}/${totalDays} дней · ${rawCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
-      }
-    ).then((raw) => {
-      rawMessagesCache = raw;
-      const uniq = new Set(raw.map((m) => m.user)).size;
-      loadingStatusEl.textContent =
-        `Готово: ${raw.length.toLocaleString()} сообщений · ${uniq.toLocaleString()} чаттеров`;
-      btnStart.disabled = false;
-      btnStart.textContent = 'Начать игру';
-      return raw;
-    }).catch((e) => {
-      console.error('[ChatterGuesser] Ошибка парсинга логов:', e);
-      setupErrorEl.textContent = `Не удалось загрузить логи: ${e.message}`;
-      setupErrorEl.classList.remove('hidden');
-      loadingStatusEl.textContent = '';
-      btnStart.disabled = true;
-      btnStart.textContent = 'Начать игру';
-    });
-  }
-
-  // ===== Привязка фильтров =====
-
   function bindRangeAndNumber(rangeId, numberId, onChange) {
-    const range = document.getElementById(rangeId);
+    const range  = document.getElementById(rangeId);
     const number = document.getElementById(numberId);
     range.addEventListener('input', () => { number.value = range.value; onChange(Number(range.value)); });
     number.addEventListener('input', () => {
-      let val = Number(number.value);
-      if (isNaN(val)) return;
+      let val = Number(number.value); if (isNaN(val)) return;
       val = Math.max(Number(range.min), val);
       range.value = Math.min(val, Number(range.max));
       onChange(val);
     });
   }
 
-  bindRangeAndNumber('range-rounds', 'input-rounds', (v) => { settings.rounds = v; saveSettingsToSession(); });
-  bindRangeAndNumber('range-variants', 'input-variants', (v) => { settings.variants = v; saveSettingsToSession(); });
+  bindRangeAndNumber('range-rounds',   'input-rounds',   v => { settings.rounds   = v; saveSettingsToSession(); });
+  bindRangeAndNumber('range-variants', 'input-variants', v => { settings.variants  = v; saveSettingsToSession(); });
 
-  document.getElementById('input-min-messages').addEventListener('input', (e) => {
+  document.getElementById('input-min-messages').addEventListener('input', e => {
     let val = Math.max(100, Number(e.target.value) || 100);
     settings.minMessages = val;
     document.getElementById('range-min-messages').value = Math.min(val, 30000);
     saveSettingsToSession();
   });
-  document.getElementById('range-min-messages').addEventListener('input', (e) => {
+  document.getElementById('range-min-messages').addEventListener('input', e => {
     settings.minMessages = Number(e.target.value);
     document.getElementById('input-min-messages').value = settings.minMessages;
     saveSettingsToSession();
   });
-
-  document.getElementById('range-min-length').addEventListener('input', (e) => {
+  document.getElementById('range-min-length').addEventListener('input', e => {
     let val = Number(e.target.value);
     if (val > settings.maxLength) { val = settings.maxLength; e.target.value = val; }
     settings.minLength = val;
     document.getElementById('label-min-length').textContent = val;
     saveSettingsToSession();
   });
-  document.getElementById('range-max-length').addEventListener('input', (e) => {
+  document.getElementById('range-max-length').addEventListener('input', e => {
     let val = Number(e.target.value);
     if (val < settings.minLength) { val = settings.minLength; e.target.value = val; }
     settings.maxLength = val;
     document.getElementById('label-max-length').textContent = val;
     saveSettingsToSession();
   });
-
-  document.getElementById('input-ignored-chatters').addEventListener('input', (e) => {
-    settings.ignoredChatters = e.target.value;
-    saveSettingsToSession();
+  document.getElementById('input-ignored-chatters').addEventListener('input', e => {
+    settings.ignoredChatters = e.target.value; saveSettingsToSession();
+  });
+  document.getElementById('input-allowed-phrases').addEventListener('input', e => {
+    settings.allowedPhrases = e.target.value; saveSettingsToSession();
   });
 
-  document.querySelectorAll('.author-toggle-btn').forEach((btn) => {
+  document.querySelectorAll('.author-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.author-toggle-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.author-toggle-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       settings.authorFilter = btn.dataset.author;
-      saveSettingsToSession();
-      updateModVipFallbackUI();
+      saveSettingsToSession(); updateModVipFallbackUI();
     });
   });
-
-  document.querySelectorAll('.mode-card').forEach((card) => {
+  document.querySelectorAll('.mode-card').forEach(card => {
     card.addEventListener('click', () => {
-      document.querySelectorAll('.mode-card').forEach((c) => c.classList.remove('active'));
-      card.classList.add('active');
-      settings.mode = card.dataset.mode;
-      saveSettingsToSession();
+      document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active'); settings.mode = card.dataset.mode; saveSettingsToSession();
+    });
+  });
+  document.querySelectorAll('.emote-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.emote-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); settings.emoteFilter = btn.dataset.emoteFilter; saveSettingsToSession();
     });
   });
 
   // ===== Запуск игры =====
 
-  btnStart.addEventListener('click', async () => {
+  document.getElementById('btn-start-game').addEventListener('click', async () => {
     setupErrorEl.classList.add('hidden');
+    if (settings.mode === 'live') { showScreen('liveSetup'); return; }
+    await launchGame();
+  });
 
-    if (!rawMessagesCache) {
-      if (logsScanPromise) {
-        btnStart.disabled = true;
-        btnStart.textContent = 'Парсинг логов...';
-        try { await logsScanPromise; } catch (e) { return; }
-      } else {
-        showSetupError('Логи ещё не загружены. Подождите.');
-        return;
-      }
+  // Получает пул: либо из уже накопленного LazyPool, либо подгружает
+  // случайные дни прямо сейчас (ленивый старт без предварительного парсинга)
+  async function buildPoolForGame() {
+    const btnStart = document.getElementById('btn-start-game');
+    const statusEl = document.getElementById('loading-status');
+
+    function progressCb({ loaded, total, msgCount, chattersCount }) {
+      statusEl.textContent =
+        `Подгружаем логи: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
     }
 
-    // Живая игра — особый флоу
-    if (settings.mode === 'live') {
-      showScreen('liveSetup');
-      return;
+    const raw = LazyPool.getRaw();
+    const rawChatters = new Set(raw.map(m => m.user)).size;
+
+    // Первый раунд: нужно минимум 10 000 сообщений и 100 чаттеров
+    const needBootstrap = raw.length < 10000 || rawChatters < 100;
+
+    if (needBootstrap && LazyPool.remainingDays() > 0) {
+      btnStart.disabled = true;
+      btnStart.textContent = 'Загружаем данные...';
+      await LazyPool.loadUntil(
+        (msgs, chatters) => msgs.length >= 10000 && chatters >= 100,
+        progressCb
+      );
+      btnStart.disabled = false;
+      btnStart.textContent = 'Начать игру';
     }
 
-    btnStart.disabled = true;
-    btnStart.textContent = 'Формирование раундов...';
+    readManualModsVips();
+
+    const { pool, uniqueAuthorCount } = MessagePool.filterPool(LazyPool.getRaw(), {
+      minLength:         settings.minLength,
+      maxLength:         settings.maxLength,
+      authorFilter:      settings.authorFilter,
+      minMessages:       settings.minMessages,
+      mods, vips,
+      ignoredChattersStr: settings.ignoredChatters,
+      allowedPhrasesStr:  settings.allowedPhrases,
+      emoteFilter:        settings.emoteFilter,
+      emotes:             channelEmotes,
+    });
+
+    return { pool, uniqueAuthorCount };
+  }
+
+  async function launchGame() {
+    const btnStart = document.getElementById('btn-start-game');
+    btnStart.disabled = true; btnStart.textContent = 'Формирование...';
 
     try {
-      readManualModsVips();
-      const { pool, uniqueAuthorCount } = MessagePool.filterPool(rawMessagesCache, {
-        minLength: settings.minLength,
-        maxLength: settings.maxLength,
-        authorFilter: settings.authorFilter,
-        minMessages: settings.minMessages,
-        mods,
-        vips,
-        ignoredChattersStr: settings.ignoredChatters,
-      });
+      const { pool, uniqueAuthorCount } = await buildPoolForGame();
 
       if (pool.length < settings.variants) {
+        const raw = LazyPool.getRaw();
         throw new Error(
-          `Недостаточно сообщений под текущие фильтры (найдено ${pool.length} из ${rawMessagesCache.length.toLocaleString()} просканированных). Ослабьте фильтры.`
+          `Недостаточно сообщений под фильтры (найдено ${pool.length} из ${raw.length.toLocaleString()} спаршенных). Ослабьте фильтры или спарсите больше логов.`
         );
       }
       if (uniqueAuthorCount < settings.variants) {
         throw new Error(
-          `Только ${uniqueAuthorCount} уникальных авторов подходит под фильтры — нужно минимум ${settings.variants} для ${settings.variants} вариантов в раунде. Ослабьте фильтры.`
+          `Только ${uniqueAuthorCount} уникальных авторов — нужно минимум ${settings.variants}. Ослабьте фильтры.`
         );
       }
 
       const roundsBuilt = GameEngine.startGame(pool, settings, settings.mode);
-      if (!roundsBuilt) throw new Error('Не удалось сформировать ни одного раунда. Ослабьте фильтры.');
+      if (!roundsBuilt) throw new Error('Не удалось сформировать раунды. Ослабьте фильтры.');
+
+      // После первого раунда — запускаем фоновую подгрузку 3 случайных дней
+      scheduleBackgroundLoad();
 
       renderCurrentRound();
       showScreen('game');
       setupGameUI();
     } catch (e) {
-      console.error('[ChatterGuesser] Ошибка запуска:', e);
+      console.error('[ChatterGuesser]', e);
       showSetupError(e.message);
     } finally {
-      btnStart.disabled = false;
-      btnStart.textContent = 'Начать игру';
+      btnStart.disabled = false; btnStart.textContent = 'Начать игру';
     }
-  });
+  }
+
+  // Фоновая подгрузка 3 случайных дней после каждого раунда
+  function scheduleBackgroundLoad() {
+    if (LazyPool.remainingDays() === 0) return;
+    LazyPool.loadRandomDays(3, ({ loaded, total, msgCount, chattersCount }) => {
+      // Обновляем статус-строку на экране настроек (если он видим)
+      const el = document.getElementById('loading-status');
+      if (el) el.textContent =
+        `Фон: ${loaded}/${total} дней · ${msgCount.toLocaleString()} сообщений · ${chattersCount.toLocaleString()} чаттеров`;
+    }).then(() => updateScanStatus());
+  }
 
   // ===== Живая игра =====
 
-  let liveMessages = [];
+  let liveMessages   = [];
   let liveTimerInterval = null;
 
   document.getElementById('btn-live-back').addEventListener('click', () => {
-    ChatListener.disconnect();
-    showScreen('setup');
+    ChatListener.disconnect(); showScreen('setup');
   });
 
   document.getElementById('btn-live-start-timer').addEventListener('click', () => {
@@ -567,8 +566,7 @@
     document.getElementById('live-timer-value').textContent = '60';
     document.getElementById('live-timer-collected').textContent = 'Собрано сообщений: 0';
 
-    // Подключаемся к IRC канала логов (анонимно) и собираем сообщения
-    ChatListener.connect(AppState.channel, (msg) => {
+    ChatListener.connect(AppState.channel, msg => {
       const ignored = MessagePool.parseChatterList(settings.ignoredChatters);
       if (!ignored.has(msg.login)) {
         liveMessages.push({ user: msg.login, text: msg.text, time: new Date().toISOString() });
@@ -581,17 +579,14 @@
     liveTimerInterval = setInterval(() => {
       secondsLeft--;
       document.getElementById('live-timer-value').textContent = secondsLeft;
-
-      // Пульсация цвета таймера в последние 10 секунд
       const circle = document.querySelector('.live-timer-circle');
       if (secondsLeft <= 10) {
         circle.style.borderColor = 'var(--red)';
         circle.style.color = 'var(--red)';
       }
-
       if (secondsLeft <= 0) {
         clearInterval(liveTimerInterval);
-        cleanupChatSession();
+        ChatListener.disconnect();
         startLiveGame();
       }
     }, 1000);
@@ -601,17 +596,11 @@
     if (liveMessages.length < settings.variants) {
       showScreen('liveSetup');
       document.querySelector('.live-setup-desc').textContent =
-        `Собрано только ${liveMessages.length} сообщений — недостаточно для ${settings.variants} вариантов. Уменьшите "Вариантов" в настройках или попробуйте снова.`;
+        `Собрано только ${liveMessages.length} сообщений — недостаточно. Попробуйте снова.`;
       return;
     }
-
-    // Используем живые сообщения как пул вместо логов
     const roundsBuilt = GameEngine.startGame(liveMessages, settings, 'live');
-    if (!roundsBuilt) {
-      showScreen('liveSetup');
-      return;
-    }
-
+    if (!roundsBuilt) { showScreen('liveSetup'); return; }
     renderCurrentRound();
     showScreen('game');
     setupGameUI();
@@ -623,23 +612,17 @@
 
   function cleanupChatSession() {
     ChatListener.disconnect();
-    if (chatStatusInterval) {
-      clearInterval(chatStatusInterval);
-      chatStatusInterval = null;
-    }
+    if (chatStatusInterval) { clearInterval(chatStatusInterval); chatStatusInterval = null; }
   }
 
   function setupGameUI() {
     const isChat = settings.mode === 'chat';
     const sidebar = document.getElementById('chat-sidebar');
     sidebar.classList.toggle('hidden', !isChat);
-
-    // Всегда сбрасываем лидерборд и статус соединения перед новой игрой
     document.getElementById('leaderboard-list').innerHTML = '';
     const statusEl = document.getElementById('connection-status');
     statusEl.textContent = 'подключение...';
     statusEl.className = 'connection-status disconnected';
-
     if (isChat) setupChatVoting();
     setupExitButton();
   }
@@ -650,16 +633,13 @@
 
     document.getElementById('round-progress-label').textContent =
       `Раунд ${GameEngine.getRoundNumber()} / ${GameEngine.getTotalRounds()}`;
-
     const score = GameEngine.getStreamerScore();
     document.getElementById('score-progress-label').textContent =
       score.total > 0 ? `✓ ${score.correct} / ${score.total}` : '';
-
     document.getElementById('target-username').textContent = round.targetUser;
 
-    const optionsListEl = document.getElementById('options-list');
-    optionsListEl.innerHTML = '';
-
+    const listEl = document.getElementById('options-list');
+    listEl.innerHTML = '';
     round.options.forEach((opt, idx) => {
       const btn = document.createElement('button');
       btn.className = 'option-row';
@@ -667,11 +647,14 @@
         <span class="option-number">${idx + 1}</span>
         <span class="option-text">${escapeHtml(opt.text)}</span>`;
       btn.addEventListener('click', () => handleAnswerSelect(idx));
-      optionsListEl.appendChild(btn);
+      listEl.appendChild(btn);
     });
 
     document.getElementById('btn-next-round').classList.add('hidden');
     resetExitConfirm();
+
+    // Фоновая подгрузка на каждый раунд (3 случайных дня)
+    if (settings.mode !== 'live') scheduleBackgroundLoad();
   }
 
   function handleAnswerSelect(selectedIdx) {
@@ -681,37 +664,29 @@
   }
 
   function revealAnswer(correctIndex, selectedIndex) {
-    const optionsListEl = document.getElementById('options-list');
-    const buttons = optionsListEl.querySelectorAll('.option-row');
-    const round = GameEngine.getCurrentRound();
+    const round   = GameEngine.getCurrentRound();
+    const buttons = document.getElementById('options-list').querySelectorAll('.option-row');
 
     buttons.forEach((btn, idx) => {
       btn.disabled = true;
-      const isCorrect = idx === correctIndex;
+      const isCorrect  = idx === correctIndex;
       const isSelected = idx === selectedIndex;
-
       if (isCorrect) btn.classList.add('correct');
       else if (isSelected) btn.classList.add('incorrect-selected');
 
-      // Показываем кто написал каждый вариант после ответа
+      // Показываем автора каждого варианта после ответа
       const opt = round.options[idx];
-      if (!isCorrect && opt.user) {
-        const authorSpan = document.createElement('span');
-        authorSpan.className = 'option-revealed-author';
-        authorSpan.innerHTML = `написал: <span class="author-name">${escapeHtml(opt.user)}</span>`;
-        btn.appendChild(authorSpan);
-      }
+      const authorSpan = document.createElement('span');
+      authorSpan.className = 'option-revealed-author';
+      authorSpan.innerHTML = isCorrect
+        ? `написал: <span class="author-name">${escapeHtml(opt.user)}</span> ✓`
+        : `написал: <span class="author-name">${escapeHtml(opt.user)}</span>`;
+      btn.appendChild(authorSpan);
     });
 
-    if (settings.mode === 'chat') {
-      GameEngine.resolveChatVotesAndUpdateScores();
-      renderLeaderboard();
-    }
-
+    if (settings.mode === 'chat') { GameEngine.resolveChatVotesAndUpdateScores(); renderLeaderboard(); }
     const score = GameEngine.getStreamerScore();
-    document.getElementById('score-progress-label').textContent =
-      `✓ ${score.correct} / ${score.total}`;
-
+    document.getElementById('score-progress-label').textContent = `✓ ${score.correct} / ${score.total}`;
     const btnNext = document.getElementById('btn-next-round');
     btnNext.textContent = GameEngine.isGameOver() ? 'Посмотреть результаты →' : 'Следующий раунд →';
     btnNext.classList.remove('hidden');
@@ -719,69 +694,58 @@
 
   document.getElementById('btn-next-round').addEventListener('click', () => {
     if (GameEngine.isGameOver()) { showResults(); return; }
-    GameEngine.nextRound();
-    renderCurrentRound();
+    GameEngine.nextRound(); renderCurrentRound();
   });
 
-  // ===== Кнопка "Выйти" с раздвоением =====
+  // ===== Кнопка "Выйти" =====
 
-  function setupExitButton() {
-    resetExitConfirm();
-  }
+  function setupExitButton() { resetExitConfirm(); }
 
   function resetExitConfirm() {
-    const btnExit = document.getElementById('btn-exit-game');
+    const btnExit  = document.getElementById('btn-exit-game');
     const confirmEl = document.getElementById('exit-confirm');
     btnExit.classList.remove('shrunk', 'hidden');
     confirmEl.classList.add('hidden');
   }
 
   document.getElementById('btn-exit-game').addEventListener('click', () => {
-    const btnExit = document.getElementById('btn-exit-game');
+    const btnExit  = document.getElementById('btn-exit-game');
     const confirmEl = document.getElementById('exit-confirm');
     btnExit.classList.add('shrunk');
     setTimeout(() => btnExit.classList.add('hidden'), 150);
     confirmEl.classList.remove('hidden');
   });
-
   document.getElementById('btn-exit-confirm').addEventListener('click', () => {
     cleanupChatSession();
     if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
+    updateScanStatus();
     showScreen('setup');
   });
-
   document.getElementById('btn-exit-cancel').addEventListener('click', resetExitConfirm);
 
-  // ===== Режим "играть с чатом" =====
+  // ===== Чат-голосование =====
 
   function setupChatVoting() {
-    const statusEl = document.getElementById('connection-status');
-
-    // Чистим предыдущую сессию если была
     cleanupChatSession();
-
-    ChatListener.connect(AppState.channel, (msg) => {
+    const statusEl = document.getElementById('connection-status');
+    ChatListener.connect(AppState.channel, msg => {
       const num = parseInt(msg.text.trim(), 10);
       if (!isNaN(num) && num >= 1 && num <= settings.variants) {
         const round = GameEngine.getCurrentRound();
         if (round && !round.answered) GameEngine.registerChatVote(msg.login, num);
       }
     });
-
     chatStatusInterval = setInterval(() => {
       const ok = ChatListener.isConnected();
       statusEl.textContent = ok ? 'подключено к чату' : 'переподключение...';
       statusEl.className = `connection-status ${ok ? 'connected' : 'disconnected'}`;
     }, 1000);
-
-    window.addEventListener('beforeunload', () => {
-      cleanupChatSession();
-    }, { once: true });
+    window.addEventListener('beforeunload', () => cleanupChatSession(), { once: true });
   }
 
   function renderLeaderboard() {
     const listEl = document.getElementById('leaderboard-list');
-    const top = GameEngine.getChatLeaderboard(10);
+    const top    = GameEngine.getChatLeaderboard(10);
     listEl.innerHTML = '';
     if (!top.length) {
       listEl.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">Пока никто не угадал</div>';
@@ -798,7 +762,7 @@
     });
   }
 
-  // ===== Финальный экран =====
+  // ===== Финал =====
 
   function showResults() {
     cleanupChatSession();
@@ -806,16 +770,18 @@
     document.getElementById('final-score').textContent = `${score.correct} / ${score.total}`;
     const pct = score.total > 0 ? score.correct / score.total : 0;
     document.getElementById('final-comment').textContent =
-      pct === 1 ? 'Идеальное знание своего чата!' :
-      pct >= 0.7 ? 'Отличный результат — чат как на ладони.' :
-      pct >= 0.4 ? 'Неплохо, но есть куда расти.' :
-      'Похоже, пора почаще читать чат :)';
+      pct === 1   ? 'Идеальное знание своего чата!' :
+      pct >= 0.7  ? 'Отличный результат — чат как на ладони.' :
+      pct >= 0.4  ? 'Неплохо, но есть куда расти.' :
+                    'Похоже, пора почаще читать чат :)';
     showScreen('results');
   }
 
-  document.getElementById('btn-restart').addEventListener('click', () => showScreen('setup'));
+  document.getElementById('btn-restart').addEventListener('click', () => {
+    updateScanStatus(); showScreen('setup');
+  });
 
-  // ===== Запуск =====
+  // ===== Старт =====
   initAuthFlow();
 
 })();
